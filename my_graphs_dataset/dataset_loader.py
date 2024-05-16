@@ -99,6 +99,11 @@ class GraphDataset:
 
     @staticmethod
     def parse_edgelist(description):
+        # We assume that the index of the nodes is the same as the node label.
+        # By default, networkx adds the nodes in the order they are found in the
+        # edgelist. For example, if the edgelist is [(1, 3), (2, 3)], the order
+        # of the nodes will be [1, 3, 2]. This interferes with the adjacency
+        # matrix ordering. So, we first add sorted nodes and then the edges.
         edges = [tuple(map(int, edge.split())) for edge in description.split("; ")]
         G_init = nx.from_edgelist(edges)
         G = nx.Graph()
@@ -110,3 +115,12 @@ class GraphDataset:
     def extract_graph_size(file_name):
         # graphs_05.txt -> 5
         return int(file_name.split(".")[0].split("_")[1])
+
+
+if __name__ == '__main__':
+    from matplotlib import pyplot as plt
+
+    loader = GraphDataset(selection=[3, 4,])
+    for G in loader.graphs():
+        nx.draw(G, with_labels=True)
+        plt.show()

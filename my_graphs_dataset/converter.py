@@ -5,10 +5,17 @@ import networkx as nx
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 
+from my_graphs_dataset import GraphDataset
+
 
 def graph6_to_edgelist(graph6: str) -> str:
-    graph = nx.from_graph6_bytes(bytes(graph6.strip(), "ascii"))
+    graph = GraphDataset.parse_graph6(graph6)
     return "; ".join(nx.generate_edgelist(graph, data=False)) + "\n"
+
+
+def edgelist_to_graph6(edgelist: str) -> str:
+    graph = GraphDataset.parse_edgelist(edgelist)
+    return nx.to_graph6_bytes(graph).decode("ascii") + "\n"
 
 
 def main():

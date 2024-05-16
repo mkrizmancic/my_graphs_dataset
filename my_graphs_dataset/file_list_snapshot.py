@@ -1,6 +1,8 @@
 import argparse
-import yaml
 from pathlib import Path
+
+import yaml
+
 
 def save_directory_structure(files_path, output_file):
     def traverse(path):
@@ -19,7 +21,7 @@ def save_directory_structure(files_path, output_file):
         return what_return
 
     structure = traverse(files_path)
-    with open(output_file, 'w') as file:
+    with open(output_file, "w") as file:
         yaml.dump(structure, file)
 
 
@@ -30,6 +32,6 @@ if __name__ == "__main__":
 
     args = arg.parse_args()
 
-    files_path = Path(__file__).parents[1] / 'data' / args.dir
+    files_path = Path(__file__).parents[1] / "data" / args.dir
     output_file = Path().cwd() / args.output
     save_directory_structure(files_path, output_file)
