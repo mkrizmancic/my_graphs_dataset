@@ -32,6 +32,7 @@ class GraphDataset:
 
     def _make_num_graphs(self):
         num_graphs = {}
+        new_selection = {}
         for file_name in self.raw_file_names:
             with open(self.raw_files_dir / file_name) as file:
                 graph_size = GraphDataset.extract_graph_size(file_name)
@@ -40,6 +41,12 @@ class GraphDataset:
                     num_graphs[graph_size] = min(self.selection[graph_size], num_graphs_in_file)
                 else:
                     num_graphs[graph_size] = num_graphs_in_file
+                    new_selection[graph_size] = num_graphs_in_file
+
+        if new_selection:
+            self.selection = {} if self.selection is None else self.selection
+            self.selection.update(new_selection)
+
         return num_graphs
 
     def graphs(self, batch_size: Union[str, int]=1, raw=False) -> Any:
@@ -63,6 +70,8 @@ class GraphDataset:
                 num_graphs_to_load = self.num_graphs[GraphDataset.extract_graph_size(file_name)]
                 _batch_size = num_graphs_to_load if batch_size == "auto" else int(batch_size)
                 # Open the file and process it.
+                # TODO: Shuffle the graphs in the file to prevent always loading the same graphs.
+                #   When this is implemented, save the used seed for datasete name hashing.
                 with open(self.raw_files_dir / file_name, "r") as file:
                     batch: list[nx.Graph | str] = []
                     total_graphs_from_file = 0
