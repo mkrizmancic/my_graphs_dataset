@@ -165,7 +165,7 @@ def generate_graph(N, graph_type=GraphType.RANDOM_MIX, seed=None, scale=0.5):
 
     :param N:       number of nodes
     :param type:    type chosen between the categories specified in GraphType enum
-    :param seed:    random seed
+    :param seed:    random seed - same seed will always generate the same graph
     :param degree:  average degree of a node, only used in some graph types
     :return:        adj_matrix: N*N numpy matrix
                     node_values: numpy array of size N

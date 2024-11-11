@@ -189,7 +189,7 @@ class GraphDataset:
             N: Number of nodes in the graph.
             raw: If True, returns the graph description as a string. If False, returns a NetworkX
         """
-        G = generate_graph(N, graph_type, scale=self.random_scale, seed=self.seed)
+        G = generate_graph(N, graph_type, scale=self.random_scale)
 
         # Ensure that the graph is connected.
         retry_count = 0
@@ -198,7 +198,7 @@ class GraphDataset:
                 warn(f"Failed to generate a connected {graph_type.name} graph after {retry_count} retries.")
             if retry_count >= self.retries * 3:
                 raise RuntimeError(f"Failed to generate a connected {graph_type.name} graph after {retry_count} retries.")
-            G = generate_graph(N, graph_type, scale=self.random_scale, seed=self.seed)
+            G = generate_graph(N, graph_type, scale=self.random_scale)
             retry_count += 1
 
         if raw:
@@ -239,14 +239,14 @@ if __name__ == '__main__':
         # GraphType.ERDOS_RENYI: (10, [10, 15, 20]),
         # GraphType.BARABASI_ALBERT: (10, range(10, 15+1)),
         # GraphType.GRID: (10, range(10, 15+1, 5)),
-        GraphType.RANDOM_MIX: (10, [10, 15, 20]),
+        GraphType.RANDOM_MIX: (10, range(15,25)),
         ## All isomorphic graph with N nodes from a file.
         #   N: num. graphs OR -1 for all graphs
         3: -1,
         4: 3,
     }
 
-    loader = GraphDataset(selection=selection, seed=42)
+    loader = GraphDataset(selection=selection, seed=100)
     lst = []
     for G in loader.graphs(batch_size=1, raw=True):
         lst.append(G)
