@@ -170,9 +170,6 @@ def generate_graph(N, graph_type=GraphType.RANDOM_MIX, seed=None, scale=0.5):
     :return:        adj_matrix: N*N numpy matrix
                     node_values: numpy array of size N
     """
-    random.seed(seed)
-    np.random.seed(seed)
-
     # sample which random type to use
     if graph_type == GraphType.RANDOM_MIX:
         graph_type = np.random.choice([t for (t, _) in MIXTURE], 1, p=[pr for (_, pr) in MIXTURE])[0]

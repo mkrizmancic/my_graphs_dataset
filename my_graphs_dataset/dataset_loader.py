@@ -1,8 +1,10 @@
+import random
 from pathlib import Path
 from typing import Any, Union
 from warnings import warn
 
 import networkx as nx
+import numpy as np
 from tqdm import tqdm
 
 from my_graphs_dataset.graph_generators import GraphType, generate_graph
@@ -27,6 +29,9 @@ class GraphDataset:
         self.file_name_template = "graphs_{}.txt"
 
         self.seed = seed
+        random.seed(seed)
+        np.random.seed(seed)
+
         self.retries = retries
         self.connected = connected
         self.random_scale = random_scale
@@ -231,9 +236,9 @@ if __name__ == '__main__':
     selection = {
         ## Random and generated graphs
         #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
-        GraphType.ERDOS_RENYI: (10, [10, 15, 20]),
-        GraphType.BARABASI_ALBERT: (10, range(10, 15+1)),
-        GraphType.GRID: (10, range(10, 15+1, 5)),
+        # GraphType.ERDOS_RENYI: (10, [10, 15, 20]),
+        # GraphType.BARABASI_ALBERT: (10, range(10, 15+1)),
+        # GraphType.GRID: (10, range(10, 15+1, 5)),
         GraphType.RANDOM_MIX: (10, [10, 15, 20]),
         ## All isomorphic graph with N nodes from a file.
         #   N: num. graphs OR -1 for all graphs
@@ -241,10 +246,12 @@ if __name__ == '__main__':
         4: 3,
     }
 
-    loader = GraphDataset(selection=selection)
+    loader = GraphDataset(selection=selection, seed=42)
     lst = []
-    for G in loader.graphs(batch_size="auto"):
-        lst.append(len(G))
+    for G in loader.graphs(batch_size=1, raw=True):
+        lst.append(G)
         # nx.draw(G, with_labels=True)
         # plt.show()
-    print(lst)
+
+    for G in lst:
+        print(G)
