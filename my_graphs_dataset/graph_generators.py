@@ -195,7 +195,7 @@ def full_k_tree(N, scale, seed):
 
     Maximum number of graphs = round((N - 3) * scale) - 1
     """
-    full_k_tree.max_graphs = round((N - 3) * scale)
+    full_k_tree.max_graphs = round((N - 3) * scale) - 1
     k = random.randint(2, round((N - 3) * scale))
     return nx.full_rary_tree(k, N)
 
@@ -322,30 +322,30 @@ def randomize(A):
 
 
 class GraphType(Enum):
-    RANDOM_PNA = partial(empty_graph)
-    RANDOM_OUR = partial(empty_graph)
-    ERDOS_RENYI = partial(erdos_renyi)
-    BARABASI_ALBERT = partial(barabasi_albert)
-    WATTS_STROGATZ = partial(watts_strogatz)
-    NEW_WATTS_STROGATZ = partial(newman_watts_strogatz)
-    STOCH_BLOCK = partial(stochastic_block)
-    GRID = partial(grid)
-    LADDER = partial(ladder)
-    REGULAR = partial(regular)
-    LINE = partial(line)
-    STAR = partial(star)
-    CYCLE = partial(cycle)
-    POWER_TREE = partial(power_tree)
-    FULL_K_TREE = partial(full_k_tree)
-    WHEEL = partial(wheel)
-    CAVEMAN = partial(caveman)
-    CATERPILLAR = partial(caterpillar)
-    LOBSTER = partial(lobster)
-    LOLLIPOP = partial(lolipop)
-    BARBELL = partial(barbell)
+    RANDOM_PNA = (empty_graph,)
+    RANDOM_OUR = (empty_graph,)
+    ERDOS_RENYI = (erdos_renyi,)
+    BARABASI_ALBERT = (barabasi_albert,)
+    WATTS_STROGATZ = (watts_strogatz,)
+    NEW_WATTS_STROGATZ = (newman_watts_strogatz,)
+    STOCH_BLOCK = (stochastic_block,)
+    GRID = (grid,)
+    LADDER = (ladder,)
+    REGULAR = (regular,)
+    LINE = (line,)
+    STAR = (star,)
+    CYCLE = (cycle,)
+    POWER_TREE = (power_tree,)
+    FULL_K_TREE = (full_k_tree,)
+    WHEEL = (wheel,)
+    CAVEMAN = (caveman,)
+    CATERPILLAR = (caterpillar,)
+    LOBSTER = (lobster,)
+    LOLLIPOP = (lolipop,)
+    BARBELL = (barbell,)
 
     def __call__(self, *args, **kwargs):
-        return self.value(*args, **kwargs)
+        return self.value[0](*args, **kwargs)
 
     @property
     def padded_value(self):
@@ -353,6 +353,10 @@ class GraphType(Enum):
         max_length = max(len(item.name.lower()) for item in GraphType)
         # Return the value with padding spaces to align all values
         return self.name.rjust(max_length).lower()
+
+    @property
+    def max_graphs(self):
+        return self.value[0].max_graphs if hasattr(self.value[0], "max_graphs") else float("inf")
 
 
 # probabilities of each type in case of random type
@@ -458,7 +462,7 @@ def test_graph_generation(scale, seed):
                         densities[t.name].append(density)
                         avg_degrees[t.name].append(avg_degree)
                 num_unique = len(graphs)
-                num_expected = t.value.func.max_graphs if hasattr(t.value.func, "max_graphs") else n
+                num_expected = min(t.max_graphs, n)
                 by_sizes_unique[N] += num_unique
                 by_sizes_expected[N] += num_expected
                 print(f"  {N}: {num_unique}/{num_expected} ({num_unique / num_expected * 100:.2f}%)")
