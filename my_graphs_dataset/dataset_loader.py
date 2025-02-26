@@ -1,4 +1,5 @@
 import random
+import re
 from pathlib import Path
 from typing import Any, Union
 from warnings import warn
@@ -11,7 +12,7 @@ from my_graphs_dataset.graph_generators import GraphType, generate_graph
 
 
 class GraphDataset:
-    def __init__(self, selection=None, graph_format="graph6", connected=True, random_scale=0.5, retries=10, seed=None):
+    def __init__(self, selection=None, graph_format="graph6", connected=True, random_scale=1.0, retries=10, seed=None):
         """
         Initialize the dataset loader.
 
@@ -36,20 +37,21 @@ class GraphDataset:
         self.connected = connected
         self.random_scale = random_scale
 
-        self.raw_files_dir = Path(__file__).parents[1] / "data" / graph_format
+        self.raw_files_dir = Path(__file__).parents[1] / "data"
+        self.raw_files_dir_w_format = self.raw_files_dir / graph_format
         self.raw_file_names = self._make_raw_file_names()
         self.num_graphs = self._make_num_graphs()
 
     def _make_raw_file_names(self):
         """Return the list of filenames that need to be processed."""
         if not self.selection:
-            return [file.name for file in sorted(self.raw_files_dir.iterdir())]
+            return [file.name for file in sorted(self.raw_files_dir_w_format.iterdir())]
 
         if isinstance(self.selection, (list, dict)):
             return [
                 file.name
-                for file in sorted(self.raw_files_dir.iterdir())
-                if GraphDataset.extract_graph_size(file.name) in self.selection
+                for file in sorted(self.raw_files_dir_w_format.iterdir())
+                if self.extract_graph_info(file.name) in self.selection
             ]
 
         raise ValueError("Selection must be a list, a dictionary, or None.")
@@ -59,8 +61,8 @@ class GraphDataset:
         num_graphs = {}
         new_selection = {}
         for file_name in self.raw_file_names:
-            with open(self.raw_files_dir / file_name) as file:
-                graph_size = GraphDataset.extract_graph_size(file_name)
+            with open(self.raw_files_dir_w_format / file_name) as file:
+                graph_size = self.extract_graph_info(file_name)
                 # Total number of graphs in the file.
                 num_graphs_in_file = len(file.readlines())
                 # Load the specified number of graphs or all if the specified number is greater.
@@ -82,7 +84,8 @@ class GraphDataset:
     def hashable_selection(self):
         return {str(k): (v[0], list(v[1])) if isinstance(v, tuple) else v for k, v in self.selection.items()}
 
-    def graphs(self, batch_size: Union[str, int]=1, raw=False) -> Any:
+    # TODO: It woul be great to generate graphs in parallel, but this might interfere with pytorch.
+    def graphs(self, batch_size: Union[str, int] = 1, raw: str | bool = "auto") -> Any:
         """
         Yield graphs from the dataset.
 
@@ -92,23 +95,26 @@ class GraphDataset:
                 - 1: Yields graphs one by one.
                 - != 1: Yields graphs in batches equal to or less than the specified size. Files containing the graphs
                     are read individually so the batch might be smaller than the specified size.
-            raw: If True, yields raw graph descriptions as strings. If False, yields NetworkX graphs. Raw descriptions
-                are useful for parallel processing.
+            raw:
+                - True: yields raw graph descriptions as strings. Raw descriptions are useful for parallel processing.
+                - False: yields NetworkX graphs.
+                - "auto": yields raw descriptions for graphs read from files and NetworkX graphs for generated graphs.
         """
         with tqdm(self.raw_file_names) as files_w_progress:
             # Iterate over all available files.
             files_w_progress.set_description("Processing fixed graphs")
             for file_name in files_w_progress:
                 # Load the number of graphs specified in the selection.
-                num_graphs_to_load = self.num_graphs[GraphDataset.extract_graph_size(file_name)]
+                num_graphs_to_load = self.num_graphs[self.extract_graph_info(file_name)]
                 _batch_size = num_graphs_to_load if batch_size == "auto" else int(batch_size)
                 # Open the file and process it.
                 # TODO: Shuffle the graphs in the file to prevent always loading the same graphs.
                 #   When this is implemented, save the used seed for dataset name hashing.
-                with open(self.raw_files_dir / file_name, "r") as file:
+                with open(self.raw_files_dir_w_format / file_name, "r") as file:
                     batch: list[nx.Graph | str] = []
                     total_graphs_from_file = 0
                     for line in tqdm(file, total=num_graphs_to_load, desc=file_name):
+                        line = line.strip()
                         if total_graphs_from_file >= num_graphs_to_load:
                             break
 
@@ -168,19 +174,20 @@ class GraphDataset:
                     if batch:
                         yield batch
 
-
-    def load_graph(self, description:str, raw=False):
-        if raw:
+    def load_graph(self, description: str, raw: str | bool = True):
+        if raw == "auto" or raw is True:
             return description
-
-        if self.format == "graph6":
-            return GraphDataset.parse_graph6(description)
-        elif self.format == "edgelist":
-            return GraphDataset.parse_edgelist(description)
+        elif raw is False:
+            if self.format == "graph6":
+                return GraphDataset.parse_graph6(description)
+            elif self.format == "edgelist":
+                return GraphDataset.parse_edgelist(description)
+            else:
+                raise ValueError(f"Unknown graph format: {self.format}")
         else:
-            raise ValueError(f"Unknown graph format: {self.format}")
+            raise ValueError(f"Unknown value for raw: {raw}")
 
-    def generate_graph(self, graph_type: GraphType, N: int, raw=False):
+    def generate_graph(self, graph_type: GraphType, N: int, raw: str | bool = False):
         """
         Generate a graph of the specified type.
 
@@ -197,14 +204,40 @@ class GraphDataset:
             if retry_count and retry_count % self.retries == 0:
                 warn(f"Failed to generate a connected {graph_type.name} graph after {retry_count} retries.")
             if retry_count >= self.retries * 3:
-                raise RuntimeError(f"Failed to generate a connected {graph_type.name} graph after {retry_count} retries.")
+                raise RuntimeError(
+                    f"Failed to generate a connected {graph_type.name} graph after {retry_count} retries."
+                )
             G = generate_graph(N, graph_type, scale=self.random_scale)
             retry_count += 1
 
-        if raw:
-            return nx.to_graph6_bytes(G).decode("ascii")
-        else:
+        if raw is True:
+            return GraphDataset.to_graph6(G) if self.format == "graph6" else GraphDataset.to_edgelist(G)
+        elif raw == "auto" or raw is False:
             return G
+        else:
+            raise ValueError(f"Unknown value for raw: {raw}")
+
+    def save_graphs(self, name, graph_format="auto"):
+        if graph_format == "auto":
+            graph_format = self.format
+
+        graphs_to_save = []
+        for G in loader.graphs(batch_size=1, raw="auto"):
+            graphs_to_save.append(G)
+
+        file_name = self.file_name_template.format(name)
+        with open(self.raw_files_dir / graph_format / file_name, "w") as file:
+            for G in graphs_to_save:
+                if isinstance(G, nx.Graph):
+                    description = GraphDataset.to_graph6(G) if graph_format == "graph6" else GraphDataset.to_edgelist(G)
+                elif graph_format != self.format:
+                    # The format in which the graphs are saved is different from the format in which they are loaded.
+                    # We need to convert the graph to the desired format.
+                    G = GraphDataset.parse_graph6(G) if self.format == "graph6" else GraphDataset.parse_edgelist(G)
+                    description = GraphDataset.to_graph6(G) if graph_format == "graph6" else GraphDataset.to_edgelist(G)
+                else:
+                    description = G
+                file.write(description + "\n")
 
     @staticmethod
     def parse_graph6(description):
@@ -225,33 +258,84 @@ class GraphDataset:
         return G
 
     @staticmethod
-    def extract_graph_size(file_name):
+    def to_graph6(G):
+        return nx.to_graph6_bytes(G).decode("ascii").split("<<")[1].strip()
+
+    @staticmethod
+    def to_edgelist(G):
+        return "; ".join(nx.generate_edgelist(G, data=False))
+
+    def extract_graph_info(self, file_name):
         # graphs_05.txt -> 5
-        return int(file_name.split(".")[0].split("_")[1])
+        # graphs_my_graphs.txt -> my_graphs
+        pattern = re.escape(self.file_name_template).replace("\\{\\}", "(.*)")
+        match = re.match(pattern, file_name)
+        if match is None:
+            raise ValueError(
+                f"Name of the graph file {file_name} is not in the expected format {self.file_name_template}."
+            )
+
+        try:
+            info = int(match.group(1))
+        except ValueError:
+            info = match.group(1)
+        return info
 
 
-if __name__ == '__main__':
+# TODO: generate, save to disk, load from disk
+if __name__ == "__main__":
     from matplotlib import pyplot as plt
 
+    # selection = {
+    #     ## Random and generated graphs
+    #     #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
+    #     #   Completly random graphs
+    #     GraphType.BARABASI_ALBERT:      (100, range(10, 15+1)),
+    #     GraphType.ERDOS_RENYI:          (100, range(10, 15+1)),
+    #     GraphType.WATTS_STROGATZ:       (100, range(10, 15+1)),
+    #     GraphType.NEW_WATTS_STROGATZ:   (100, range(10, 15+1)),
+    #     GraphType.STOCH_BLOCK:          (100, range(10, 15+1)),
+    #     GraphType.REGULAR:              (100, range(10, 15+1)),
+    #     GraphType.CATERPILLAR:          (100, range(10, 15+1)),
+    #     GraphType.LOBSTER:              (100, range(10, 15+1)),
+    #     GraphType.POWER_TREE:           (100, range(10, 15+1)),
+    #     #   Random graphs with limited variability
+    #     GraphType.FULL_K_TREE:  (100, range(10, 15+1)),
+    #     GraphType.LOLLIPOP:     (100, range(10, 15+1)),
+    #     GraphType.BARBELL:      (100, range(10, 15+1)),
+    #     #   Unique families of graphs
+    #     GraphType.GRID:         (1, range(10, 15+1)),
+    #     GraphType.CAVEMAN:      (1, range(10, 15+1)),
+    #     GraphType.LADDER:       (1, range(10, 15+1)),
+    #     GraphType.LINE:         (1, range(10, 15+1)),
+    #     GraphType.STAR:         (1, range(10, 15+1)),
+    #     GraphType.CYCLE:        (1, range(10, 15+1)),
+    #     GraphType.WHEEL:        (1, range(10, 15+1)),
+    #     ## All isomorphic graph with N nodes from a file.
+    #     #   N: num. graphs OR -1 for all graphs
+    #     # 3: -1,
+    #     # 4: 3,
+    # }
+
+    # Read and generate individual graphs, and then save them to disk in graph6 and edgelist format.
     selection = {
-        ## Random and generated graphs
-        #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
-        # GraphType.ERDOS_RENYI: (10, [10, 15, 20]),
-        # GraphType.BARABASI_ALBERT: (10, range(10, 15+1)),
-        # GraphType.GRID: (10, range(10, 15+1, 5)),
-        GraphType.RANDOM_MIX: (10, range(15,25)),
-        ## All isomorphic graph with N nodes from a file.
-        #   N: num. graphs OR -1 for all graphs
         3: -1,
-        4: 3,
+        4: -1,
+        GraphType.LINE: (1, range(10, 15 + 1)),
     }
+    loader = GraphDataset(selection=selection, seed=1, graph_format="graph6")
+    loader.save_graphs("my_graphs")
+    loader.save_graphs("my_graphs", graph_format="edgelist")
 
-    loader = GraphDataset(selection=selection, seed=100)
-    lst = []
-    for G in loader.graphs(batch_size=1, raw=True):
-        lst.append(G)
-        # nx.draw(G, with_labels=True)
-        # plt.show()
+    # Read the graph6 format and print it out.
+    selection = {"my_graphs": -1}
+    new_loader = GraphDataset(selection=selection, graph_format="graph6")
+    lst = [G for G in new_loader.graphs(batch_size=1, raw=True)]
+    for G in lst:
+        print(G)
 
+    # Read the edgelist format and print it out.
+    newest_loader = GraphDataset(selection=selection, graph_format="edgelist")
+    lst = [G for G in newest_loader.graphs(batch_size=1, raw=True)]
     for G in lst:
         print(G)
