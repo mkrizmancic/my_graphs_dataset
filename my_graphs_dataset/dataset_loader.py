@@ -38,6 +38,8 @@ class GraphDataset:
         self.random_scale = random_scale
         self.suppress_output = suppress_output
 
+        self.seen_graphs = dict()
+
         self.raw_files_dir = Path(__file__).parents[1] / "data"
         self.raw_files_dir_w_format = self.raw_files_dir / graph_format
         self.raw_file_names = self._make_raw_file_names()
@@ -80,6 +82,13 @@ class GraphDataset:
             self.selection.update(new_selection)
 
         return num_graphs
+
+    def _prepare_seen_graphs(self, graph_type, N):
+        if graph_type not in self.seen_graphs:
+            self.seen_graphs[graph_type] = dict()
+
+        if N not in self.seen_graphs[graph_type]:
+            self.seen_graphs[graph_type][N] = set()
 
     @property
     def hashable_selection(self):
@@ -152,22 +161,27 @@ class GraphDataset:
                     batch: list[nx.Graph | str] = []
                     total_graphs_generated = 0
                     for graph_size in num_graphs[1]:
+                        size_graphs_generated = 0
                         for _ in range(num_graphs[0]):
                             if total_graphs_generated >= num_graphs_to_generate:
+                                break
+                            if size_graphs_generated >= graph_type.max_graphs:
                                 break
 
                             if batch_size == 1:
                                 # Yield one graph.
                                 yield self.generate_graph(graph_type, graph_size, raw)
                                 total_graphs_generated += 1
+                                size_graphs_generated += 1
                             else:
                                 # Graphs will be appended to the batch in each iteration of the loop.
                                 # Total number of graphs is not yet updated, so the loop will not break.
                                 batch.append(self.generate_graph(graph_type, graph_size, raw))
                                 # When we reach the desired batch size or the desired number of graphs, yield the batch.
-                                if len(batch) >= min(_batch_size, num_graphs_to_generate - total_graphs_generated):
+                                if len(batch) >= min(_batch_size, num_graphs_to_generate - total_graphs_generated, graph_type.max_graphs, graph_type.max_graphs - size_graphs_generated):
                                     yield batch
                                     total_graphs_generated += len(batch)
+                                    size_graphs_generated += len(batch)
                                     batch = []
 
                             pbar.update(1)
@@ -211,8 +225,24 @@ class GraphDataset:
             G = generate_graph(N, graph_type, scale=self.random_scale)
             retry_count += 1
 
+        # Ensure the same graph was not already generated.
+        retry_count = 0
+        graph6 = GraphDataset.to_graph6(G)
+        self._prepare_seen_graphs(graph_type, N)
+        while graph6 in self.seen_graphs[graph_type][N]:
+            if retry_count and retry_count % self.retries == 0:
+                warn(f"Failed to generate a new {graph_type.name} graph after {retry_count} retries.")
+            if retry_count >= self.retries * 3:
+                raise RuntimeError(
+                    f"Failed to generate a new {graph_type.name} graph after {retry_count} retries."
+                )
+            G = generate_graph(N, graph_type, scale=self.random_scale)
+            graph6 = GraphDataset.to_graph6(G)
+            retry_count += 1
+        self.seen_graphs[graph_type][N].add(graph6)
+
         if raw is True:
-            return GraphDataset.to_graph6(G) if self.format == "graph6" else GraphDataset.to_edgelist(G)
+            return graph6 if self.format == "graph6" else GraphDataset.to_edgelist(G)
         elif raw == "auto" or raw is False:
             return G
         else:
@@ -283,60 +313,43 @@ class GraphDataset:
         return info
 
 
-# TODO: generate, save to disk, load from disk
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
 
-    # selection = {
-    #     ## Random and generated graphs
-    #     #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
-    #     #   Completly random graphs
-    #     GraphType.BARABASI_ALBERT:      (100, range(10, 15+1)),
-    #     GraphType.ERDOS_RENYI:          (100, range(10, 15+1)),
-    #     GraphType.WATTS_STROGATZ:       (100, range(10, 15+1)),
-    #     GraphType.NEW_WATTS_STROGATZ:   (100, range(10, 15+1)),
-    #     GraphType.STOCH_BLOCK:          (100, range(10, 15+1)),
-    #     GraphType.REGULAR:              (100, range(10, 15+1)),
-    #     GraphType.CATERPILLAR:          (100, range(10, 15+1)),
-    #     GraphType.LOBSTER:              (100, range(10, 15+1)),
-    #     GraphType.POWER_TREE:           (100, range(10, 15+1)),
-    #     #   Random graphs with limited variability
-    #     GraphType.FULL_K_TREE:  (100, range(10, 15+1)),
-    #     GraphType.LOLLIPOP:     (100, range(10, 15+1)),
-    #     GraphType.BARBELL:      (100, range(10, 15+1)),
-    #     #   Unique families of graphs
-    #     GraphType.GRID:         (1, range(10, 15+1)),
-    #     GraphType.CAVEMAN:      (1, range(10, 15+1)),
-    #     GraphType.LADDER:       (1, range(10, 15+1)),
-    #     GraphType.LINE:         (1, range(10, 15+1)),
-    #     GraphType.STAR:         (1, range(10, 15+1)),
-    #     GraphType.CYCLE:        (1, range(10, 15+1)),
-    #     GraphType.WHEEL:        (1, range(10, 15+1)),
-    #     ## All isomorphic graph with N nodes from a file.
-    #     #   N: num. graphs OR -1 for all graphs
-    #     # 3: -1,
-    #     # 4: 3,
-    # }
-
-    # Read and generate individual graphs, and then save them to disk in graph6 and edgelist format.
     selection = {
-        3: -1,
-        4: -1,
-        GraphType.LINE: (1, range(10, 15 + 1)),
+        ## Random and generated graphs
+        #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
+        #   Completly random graphs
+        GraphType.BARABASI_ALBERT:      (100, range(10, 15+1)),
+        GraphType.ERDOS_RENYI:          (100, range(10, 15+1)),
+        GraphType.WATTS_STROGATZ:       (100, range(10, 15+1)),
+        GraphType.NEW_WATTS_STROGATZ:   (100, range(10, 15+1)),
+        GraphType.STOCH_BLOCK:          (100, range(10, 15+1)),
+        GraphType.REGULAR:              (100, range(10, 15+1)),
+        GraphType.CATERPILLAR:          (100, range(10, 15+1)),
+        GraphType.LOBSTER:              (100, range(10, 15+1)),
+        GraphType.POWER_TREE:           (10, range(10, 15+1)),  # Must be a small number. There aren't that many power
+                                                                # law trees. Check https://oeis.org/A000055/list.
+                                                                # The number must be much smaller than in the list.
+        #   Random graphs with limited variability
+        GraphType.FULL_K_TREE:  (100, range(10, 15+1)),
+        GraphType.LOLLIPOP:     (100, range(10, 15+1)),
+        GraphType.BARBELL:      (100, range(10, 15+1)),
+        #   Unique families of graphs
+        GraphType.GRID:         (1, range(10, 15+1)),
+        GraphType.CAVEMAN:      (1, range(10, 15+1)),
+        GraphType.LADDER:       (1, range(10, 15+1)),
+        GraphType.LINE:         (1, range(10, 15+1)),
+        GraphType.STAR:         (1, range(10, 15+1)),
+        GraphType.CYCLE:        (1, range(10, 15+1)),
+        GraphType.WHEEL:        (1, range(10, 15+1)),
+        ## All isomorphic graph with N nodes from a file.
+        #   N: num. graphs OR -1 for all graphs
+        # 3: -1,
+        # 4: 3,
     }
-    loader = GraphDataset(selection=selection, seed=1, graph_format="graph6")
-    loader.save_graphs("my_graphs")
-    loader.save_graphs("my_graphs", graph_format="edgelist")
 
-    # Read the graph6 format and print it out.
-    selection = {"my_graphs": -1}
-    new_loader = GraphDataset(selection=selection, graph_format="graph6")
-    lst = [G for G in new_loader.graphs(batch_size=1, raw=True)]
-    for G in lst:
-        print(G)
+    loader = GraphDataset(selection=selection, seed=1, graph_format="graph6", retries=100)
+    lst = [G for G in loader.graphs(batch_size=1, raw=True)]
+    print(len(lst))
 
-    # Read the edgelist format and print it out.
-    newest_loader = GraphDataset(selection=selection, graph_format="edgelist")
-    lst = [G for G in newest_loader.graphs(batch_size=1, raw=True)]
-    for G in lst:
-        print(G)

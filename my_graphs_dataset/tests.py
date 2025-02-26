@@ -1,7 +1,7 @@
 import math
-from unittest import loader
-from dataset_loader import GraphDataset
-from graph_generators import GraphType
+
+from my_graphs_dataset import GraphDataset, GraphType
+
 
 def test_loading_and_saving():
     # Read and generate individual graphs, and then save them to disk in graph6 and edgelist format.
@@ -66,5 +66,57 @@ def test_seed_reproducability():
         seed = int(math.sqrt(seed) * 42 + 13)
 
 
+def test_all_graphs_generated():
+    selection = {
+        ## Random and generated graphs
+        #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
+        #   Completly random graphs
+        GraphType.BARABASI_ALBERT:      (100, range(10, 15+1)),  # 600
+        GraphType.ERDOS_RENYI:          (100, range(10, 15+1)),  # 600
+        GraphType.WATTS_STROGATZ:       (100, range(10, 15+1)),  # 600
+        GraphType.NEW_WATTS_STROGATZ:   (100, range(10, 15+1)),  # 600
+        GraphType.STOCH_BLOCK:          (100, range(10, 15+1)),  # 600
+        GraphType.REGULAR:              (100, range(10, 15+1)),  # 600
+        GraphType.CATERPILLAR:          (100, range(10, 15+1)),  # 600
+        GraphType.LOBSTER:              (100, range(10, 15+1)),  # 600
+        GraphType.POWER_TREE:           (10, range(10, 15+1)),   # 60
+        #   Random graphs with limited variability
+        GraphType.FULL_K_TREE:  (100, range(10, 15+1)),  # 6+7+8+9+10+11 = 51
+        GraphType.LOLLIPOP:     (100, range(10, 15+1)),  # 7+8+9+10+11+12 = 57
+        GraphType.BARBELL:      (100, range(10, 15+1)),  # 3+3+4+4+5+5 = 24
+        #   Unique families of graphs
+        GraphType.GRID:         (1, range(10, 15+1)),  # 6
+        GraphType.CAVEMAN:      (1, range(10, 15+1)),  # 6
+        GraphType.LADDER:       (1, range(10, 15+1)),  # 6
+        GraphType.LINE:         (1, range(10, 15+1)),  # 6
+        GraphType.STAR:         (1, range(10, 15+1)),  # 6
+        GraphType.CYCLE:        (1, range(10, 15+1)),  # 6
+        GraphType.WHEEL:        (1, range(10, 15+1)),  # 6
+        ## All isomorphic graph with N nodes from a file.
+        #   N: num. graphs OR -1 for all graphs
+        # 3: -1,
+        # 4: 3,
+    }  # TOTAL = 5034
+
+    loader = GraphDataset(selection=selection, seed=1, graph_format="graph6", retries=50)
+    lst = [G for G in loader.graphs(batch_size=1, raw=True)]
+    if len(lst) == 5034:
+        print("TEST OK")
+    else:
+        print(f"TEST FAILED ({len(lst)}/5574)")
+
+
+def test_limited_graphs_batch_limit():
+    selection = {
+        #   Random graphs with limited variability
+        GraphType.LOLLIPOP:     (100, range(10, 15+1)),  # 7+8+9+10+11+12 = 57
+    }
+
+    loader = GraphDataset(selection=selection, seed=1, graph_format="graph6", retries=50)
+
+    for i, batch in enumerate(loader.graphs(batch_size=4, raw=False)):
+        print(f"{i}: Batch size={len(batch)} {[len(G) for G in batch]}")
+
+
 if __name__ == '__main__':
-    test_seed_reproducability()
+    test_limited_graphs_batch_limit()
