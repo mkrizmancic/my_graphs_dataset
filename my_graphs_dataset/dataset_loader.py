@@ -40,20 +40,20 @@ class GraphDataset:
 
         self.seen_graphs = dict()
 
-        self.raw_files_dir = Path(__file__).parents[1] / "data"
-        self.raw_files_dir_w_format = self.raw_files_dir / graph_format
+        self.raw_files_dir_base = Path(__file__).parents[1] / "data"
+        self.raw_files_dir = self.raw_files_dir_base / graph_format
         self.raw_file_names = self._make_raw_file_names()
         self.num_graphs = self._make_num_graphs()
 
     def _make_raw_file_names(self):
         """Return the list of filenames that need to be processed."""
         if not self.selection:
-            return [file.name for file in sorted(self.raw_files_dir_w_format.iterdir())]
+            return [file.name for file in sorted(self.raw_files_dir.iterdir())]
 
         if isinstance(self.selection, (list, dict)):
             return [
                 file.name
-                for file in sorted(self.raw_files_dir_w_format.iterdir())
+                for file in sorted(self.raw_files_dir.iterdir())
                 if self.extract_graph_info(file.name) in self.selection
             ]
 
@@ -64,7 +64,7 @@ class GraphDataset:
         num_graphs = {}
         new_selection = {}
         for file_name in self.raw_file_names:
-            with open(self.raw_files_dir_w_format / file_name) as file:
+            with open(self.raw_files_dir / file_name) as file:
                 graph_size = self.extract_graph_info(file_name)
                 # Total number of graphs in the file.
                 num_graphs_in_file = len(file.readlines())
@@ -110,6 +110,9 @@ class GraphDataset:
                 - False: yields NetworkX graphs.
                 - "auto": yields raw descriptions for graphs read from files and NetworkX graphs for generated graphs.
         """
+        # Reset the list of seen graphs for each call to this generator.
+        self.seen_graphs = dict()
+
         with tqdm(self.raw_file_names, disable=self.suppress_output) as files_w_progress:
             # Iterate over all available files.
             files_w_progress.set_description("Processing fixed graphs")
@@ -120,7 +123,7 @@ class GraphDataset:
                 # Open the file and process it.
                 # TODO: Shuffle the graphs in the file to prevent always loading the same graphs.
                 #   When this is implemented, save the used seed for dataset name hashing.
-                with open(self.raw_files_dir_w_format / file_name, "r") as file:
+                with open(self.raw_files_dir / file_name, "r") as file:
                     batch: list[nx.Graph | str] = []
                     total_graphs_from_file = 0
                     for line in tqdm(file, total=num_graphs_to_load, desc=file_name, disable=self.suppress_output):
@@ -231,10 +234,10 @@ class GraphDataset:
         self._prepare_seen_graphs(graph_type, N)
         while graph6 in self.seen_graphs[graph_type][N]:
             if retry_count and retry_count % self.retries == 0:
-                warn(f"Failed to generate a new {graph_type.name} graph after {retry_count} retries.")
+                warn(f"Failed to generate a new {graph_type.name} graph with {N} nodes after {retry_count} retries.")
             if retry_count >= self.retries * 3:
                 raise RuntimeError(
-                    f"Failed to generate a new {graph_type.name} graph after {retry_count} retries."
+                    f"Failed to generate a new {graph_type.name} graph with {N} nodes after {retry_count} retries."
                 )
             G = generate_graph(N, graph_type, scale=self.random_scale)
             graph6 = GraphDataset.to_graph6(G)
@@ -253,11 +256,11 @@ class GraphDataset:
             graph_format = self.format
 
         graphs_to_save = []
-        for G in loader.graphs(batch_size=1, raw="auto"):
+        for G in self.graphs(batch_size=1, raw="auto"):
             graphs_to_save.append(G)
 
         file_name = self.file_name_template.format(name)
-        with open(self.raw_files_dir / graph_format / file_name, "w") as file:
+        with open(self.raw_files_dir_base / graph_format / file_name, "w") as file:
             for G in graphs_to_save:
                 if isinstance(G, nx.Graph):
                     description = GraphDataset.to_graph6(G) if graph_format == "graph6" else GraphDataset.to_edgelist(G)

@@ -4,6 +4,9 @@ from my_graphs_dataset import GraphDataset, GraphType
 
 
 def test_loading_and_saving():
+    print("====================================")
+    print("TESTING LOADING AND SAVING")
+
     # Read and generate individual graphs, and then save them to disk in graph6 and edgelist format.
     selection = {
         3: -1,
@@ -27,8 +30,12 @@ def test_loading_and_saving():
     for G in lst:
         print(G)
 
+    print("====================================\n")
+
 
 def test_seed_reproducability():
+    print("====================================")
+    print("TESTING SEED REPRODUCABILITY")
     selection = {
         ## Random and generated graphs
         #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
@@ -49,10 +56,10 @@ def test_seed_reproducability():
     }
 
     def do_test(selection, seed):
-        loader1 = GraphDataset(selection=selection, seed=seed, graph_format="graph6", suppress_output=True)
+        loader1 = GraphDataset(selection=selection, seed=seed, graph_format="graph6", suppress_output=True, retries=20)
         lst1 = [G for G in loader1.graphs(batch_size=1, raw=True)]
 
-        loader2 = GraphDataset(selection=selection, seed=seed, graph_format="graph6", suppress_output=True)
+        loader2 = GraphDataset(selection=selection, seed=seed, graph_format="graph6", suppress_output=True, retries=20)
         lst2 = [G for G in loader2.graphs(batch_size=1, raw=True)]
 
         assert len(lst1) == len(lst2)
@@ -65,8 +72,12 @@ def test_seed_reproducability():
         do_test(selection, seed)
         seed = int(math.sqrt(seed) * 42 + 13)
 
+    print("====================================\n")
+
 
 def test_all_graphs_generated():
+    print("====================================")
+    print("TESTING ALL GRAPHS GENERATED")
     selection = {
         ## Random and generated graphs
         #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
@@ -105,8 +116,12 @@ def test_all_graphs_generated():
     else:
         print(f"TEST FAILED ({len(lst)}/5574)")
 
+    print("====================================\n")
+
 
 def test_limited_graphs_batch_limit():
+    print("====================================")
+    print("TESTING LIMITED GRAPHS BATCH LIMIT")
     selection = {
         #   Random graphs with limited variability
         GraphType.LOLLIPOP:     (100, range(10, 15+1)),  # 7+8+9+10+11+12 = 57
@@ -117,6 +132,11 @@ def test_limited_graphs_batch_limit():
     for i, batch in enumerate(loader.graphs(batch_size=4, raw=False)):
         print(f"{i}: Batch size={len(batch)} {[len(G) for G in batch]}")
 
+    print("====================================\n")
+
 
 if __name__ == '__main__':
+    test_loading_and_saving()
+    test_seed_reproducability()
+    test_all_graphs_generated()
     test_limited_graphs_batch_limit()
