@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Union
 from warnings import warn
 
+import yaml
 import networkx as nx
 import numpy as np
 from tqdm import tqdm
@@ -24,7 +25,7 @@ class GraphDataset:
             retries: Number of retries to generate a connected graph.
             seed: Seed for the random number generator.
         """
-        self.selection = selection
+        self.selection = selection if selection is not None else dict()
         self.format = graph_format
 
         self.file_name_template = "graphs_{}.txt"
@@ -192,6 +193,7 @@ class GraphDataset:
                     if batch:
                         yield batch
 
+
     def load_graph(self, description: str, raw: str | bool = True):
         if raw == "auto" or raw is True:
             return description
@@ -251,7 +253,7 @@ class GraphDataset:
         else:
             raise ValueError(f"Unknown value for raw: {raw}")
 
-    def save_graphs(self, name, graph_format="auto"):
+    def save_graphs(self, name, graph_format="auto", save_description=False):
         if graph_format == "auto":
             graph_format = self.format
 
@@ -272,6 +274,41 @@ class GraphDataset:
                 else:
                     description = G
                 file.write(description + "\n")
+
+        if save_description:
+            self.save_generation_result(name, graph_format)
+
+    def save_generation_result(self, name, graph_format):
+        """Store the number and type of generated graphs for future reference."""
+        # Calculate the total number of graphs for each size. This is the combination of loaded and generated graphs.
+        per_size = dict()
+        for key in self.selection:
+            if isinstance(key, int):
+                per_size[key] = self.selection[key]
+        for graph_type in self.seen_graphs:
+            for N in self.seen_graphs[graph_type]:
+                per_size[N] = per_size.get(N, 0) + len(self.seen_graphs[graph_type][N])
+
+        # Calculate the total number of graphs for each type.
+        per_type = dict()
+        for key in self.selection:
+            if isinstance(key, int):
+                per_type["PREDEFINED_UNIQUE"] = per_type.get("PREDEFINED_UNIQUE", 0) + self.selection[key]
+            else:
+                per_type[key.name] = sum(len(graphs) for graphs in self.seen_graphs[key].values())
+
+        # Prepare the list of generated graphs per type and size.
+        combined = dict()
+        if self.selection is not None:
+            combined["PREDEFINED_UNIQUE"] = {k: v for k, v in self.selection.items() if isinstance(k, int)}
+        for graph_type in self.seen_graphs:
+            combined[graph_type.name] = {N: len(graphs) for N, graphs in self.seen_graphs[graph_type].items()}
+
+        # Write the results to a file.
+        with open(self.raw_files_dir_base / graph_format / f"description_{name}.yaml", "w") as file:
+            result = {"total": sum(per_size.values()), "per_size": per_size, "per_type": per_type, "combined": combined}
+            yaml.safe_dump(result, file, sort_keys=False)
+
 
     @staticmethod
     def parse_graph6(description):
@@ -305,9 +342,8 @@ class GraphDataset:
         pattern = re.escape(self.file_name_template).replace("\\{\\}", "(.*)")
         match = re.match(pattern, file_name)
         if match is None:
-            raise ValueError(
-                f"Name of the graph file {file_name} is not in the expected format {self.file_name_template}."
-            )
+            print(f"Skipping file {file_name}")
+            return None
 
         try:
             info = int(match.group(1))
@@ -323,36 +359,44 @@ if __name__ == "__main__":
         ## Random and generated graphs
         #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
         #   Completly random graphs
-        GraphType.BARABASI_ALBERT:      (100, range(10, 15+1)),
-        GraphType.ERDOS_RENYI:          (100, range(10, 15+1)),
-        GraphType.WATTS_STROGATZ:       (100, range(10, 15+1)),
-        GraphType.NEW_WATTS_STROGATZ:   (100, range(10, 15+1)),
-        GraphType.STOCH_BLOCK:          (100, range(10, 15+1)),
-        GraphType.REGULAR:              (100, range(10, 15+1)),
-        GraphType.CATERPILLAR:          (100, range(10, 15+1)),
-        GraphType.LOBSTER:              (100, range(10, 15+1)),
-        GraphType.POWER_TREE:           (10, range(10, 15+1)),  # Must be a small number. There aren't that many power
+        GraphType.BARABASI_ALBERT:      (1000, range(9, 30+1)),
+        GraphType.ERDOS_RENYI:          (1000, range(9, 30+1)),
+        GraphType.WATTS_STROGATZ:       (1000, range(9, 30+1)),
+        GraphType.NEW_WATTS_STROGATZ:   (1000, range(9, 30+1)),
+        GraphType.STOCH_BLOCK:          (1000, range(9, 30+1)),
+        GraphType.REGULAR:              (1000, range(9, 30+1)),
+        GraphType.CATERPILLAR:          (1000, range(9, 30+1)),
+        GraphType.LOBSTER:              (1000, range(9, 30+1)),
+        GraphType.POWER_TREE:           (100, range(9, 30+1)),  # Must be a small number. There aren't that many power
                                                                 # law trees. Check https://oeis.org/A000055/list.
                                                                 # The number must be much smaller than in the list.
         #   Random graphs with limited variability
-        GraphType.FULL_K_TREE:  (100, range(10, 15+1)),
-        GraphType.LOLLIPOP:     (100, range(10, 15+1)),
-        GraphType.BARBELL:      (100, range(10, 15+1)),
+        GraphType.FULL_K_TREE:  (100, range(9, 30+1)),
+        GraphType.LOLLIPOP:     (100, range(9, 30+1)),
+        GraphType.BARBELL:      (100, range(9, 30+1)),
         #   Unique families of graphs
-        GraphType.GRID:         (1, range(10, 15+1)),
-        GraphType.CAVEMAN:      (1, range(10, 15+1)),
-        GraphType.LADDER:       (1, range(10, 15+1)),
-        GraphType.LINE:         (1, range(10, 15+1)),
-        GraphType.STAR:         (1, range(10, 15+1)),
-        GraphType.CYCLE:        (1, range(10, 15+1)),
-        GraphType.WHEEL:        (1, range(10, 15+1)),
+        GraphType.GRID:         (1, range(9, 30+1)),
+        GraphType.CAVEMAN:      (1, range(9, 30+1)),
+        GraphType.LADDER:       (1, range(9, 30+1)),
+        GraphType.LINE:         (1, range(9, 30+1)),
+        GraphType.STAR:         (1, range(9, 30+1)),
+        GraphType.CYCLE:        (1, range(9, 30+1)),
+        GraphType.WHEEL:        (1, range(9, 30+1)),
         ## All isomorphic graph with N nodes from a file.
         #   N: num. graphs OR -1 for all graphs
-        # 3: -1,
-        # 4: 3,
+        3: -1,
+        4: -1,
+        5: -1,
+        6: -1,
+        7: -1,
+        8: -1,
     }
 
-    loader = GraphDataset(selection=selection, seed=1, graph_format="graph6", retries=100)
+    selection = {"03-30_mix_1000": -1}
+
+    loader = GraphDataset(selection=selection, seed=42, graph_format="graph6", retries=100)
     lst = [G for G in loader.graphs(batch_size=1, raw=True)]
     print(len(lst))
+
+    # loader.save_graphs("03-30_mix_1000", graph_format="graph6", save_description=True)
 

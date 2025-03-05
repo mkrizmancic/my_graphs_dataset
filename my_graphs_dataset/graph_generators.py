@@ -184,6 +184,7 @@ def power_tree(N, scale, seed):
 
     Maximum number of graphs = unlimited?
     """
+    power_tree.max_graphs = 5.25 * N - 39
     return nx.random_powerlaw_tree(N, gamma=3, tries=10000)
 
 
