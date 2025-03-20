@@ -218,32 +218,21 @@ class GraphDataset:
         """
         G = generate_graph(N, graph_type, scale=self.random_scale)
 
-        # Ensure that the graph is connected.
+        # Ensure that the graph is connected and not already generated.
         retry_count = 0
-        while self.connected and not nx.is_connected(G):
-            if retry_count and retry_count % self.retries == 0:
-                warn(f"Failed to generate a connected {graph_type.name} graph after {retry_count} retries.")
-            if retry_count >= self.retries * 3:
-                raise RuntimeError(
-                    f"Failed to generate a connected {graph_type.name} graph after {retry_count} retries."
-                )
-            G = generate_graph(N, graph_type, scale=self.random_scale)
-            retry_count += 1
-
-        # Ensure the same graph was not already generated.
-        retry_count = 0
-        graph6 = GraphDataset.to_graph6(G)
         self._prepare_seen_graphs(graph_type, N)
-        while graph6 in self.seen_graphs[graph_type][N]:
+        graph6 = GraphDataset.to_graph6(G)
+        while (self.connected and not nx.is_connected(G)) or graph6 in self.seen_graphs[graph_type][N]:
             if retry_count and retry_count % self.retries == 0:
-                warn(f"Failed to generate a new {graph_type.name} graph with {N} nodes after {retry_count} retries.")
+                warn(f"Failed to generate a new/connected {graph_type.name} graph with {N} nodes after {retry_count} retries.")
             if retry_count >= self.retries * 3:
                 raise RuntimeError(
-                    f"Failed to generate a new {graph_type.name} graph with {N} nodes after {retry_count} retries."
+                    f"Failed to generate a new/connected {graph_type.name} graph with {N} nodes after {retry_count} retries."
                 )
             G = generate_graph(N, graph_type, scale=self.random_scale)
             graph6 = GraphDataset.to_graph6(G)
             retry_count += 1
+
         self.seen_graphs[graph_type][N].add(graph6)
 
         if raw is True:
@@ -352,6 +341,30 @@ class GraphDataset:
         return info
 
 
+def join_descriptions(descriptions, output):
+    total = 0
+    per_size = dict()
+    per_type = dict()
+    combined = dict()
+
+    for description in descriptions:
+        with open(description, 'r') as file:
+            data = yaml.safe_load(file)
+            total += data["total"]
+            per_size.update(data["per_size"])
+
+            for key, value in data["per_type"].items():
+                per_type[key] = per_type.get(key, 0) + value
+
+            for key, value in data["combined"].items():
+                combined[key] = combined.get(key, dict())
+                combined[key].update(value)
+
+    with open(output, 'w') as file:
+        result = {"total": total, "per_size": per_size, "per_type": per_type, "combined": combined}
+        yaml.safe_dump(result, file, sort_keys=False)
+
+
 if __name__ == "__main__":
     from matplotlib import pyplot as plt
 
@@ -359,44 +372,54 @@ if __name__ == "__main__":
         ## Random and generated graphs
         #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
         #   Completly random graphs
-        GraphType.BARABASI_ALBERT:      (1000, range(9, 30+1)),
-        GraphType.ERDOS_RENYI:          (1000, range(9, 30+1)),
-        GraphType.WATTS_STROGATZ:       (1000, range(9, 30+1)),
-        GraphType.NEW_WATTS_STROGATZ:   (1000, range(9, 30+1)),
-        GraphType.STOCH_BLOCK:          (1000, range(9, 30+1)),
-        GraphType.REGULAR:              (1000, range(9, 30+1)),
-        GraphType.CATERPILLAR:          (1000, range(9, 30+1)),
-        GraphType.LOBSTER:              (1000, range(9, 30+1)),
-        GraphType.POWER_TREE:           (100, range(9, 30+1)),  # Must be a small number. There aren't that many power
+        GraphType.BARABASI_ALBERT:      (100, range(26, 29+1, 1)),
+        GraphType.ERDOS_RENYI:          (100, range(26, 29+1, 1)),
+        GraphType.WATTS_STROGATZ:       (100, range(26, 29+1, 1)),
+        GraphType.NEW_WATTS_STROGATZ:   (100, range(26, 29+1, 1)),
+        GraphType.STOCH_BLOCK:          (100, range(26, 29+1, 1)),
+        GraphType.REGULAR:              (100, range(26, 29+1, 1)),
+        GraphType.CATERPILLAR:          (100, range(26, 29+1, 1)),
+        GraphType.LOBSTER:              (100, range(26, 29+1, 1)),
+        GraphType.POWER_TREE:           (100, range(26, 29+1, 1)),  # Must be a small number. There aren't that many power
                                                                 # law trees. Check https://oeis.org/A000055/list.
                                                                 # The number must be much smaller than in the list.
         #   Random graphs with limited variability
-        GraphType.FULL_K_TREE:  (100, range(9, 30+1)),
-        GraphType.LOLLIPOP:     (100, range(9, 30+1)),
-        GraphType.BARBELL:      (100, range(9, 30+1)),
+        GraphType.FULL_K_TREE:  (100, range(26, 29+1, 1)),
+        GraphType.LOLLIPOP:     (100, range(26, 29+1, 1)),
+        GraphType.BARBELL:      (100, range(26, 29+1, 1)),
         #   Unique families of graphs
-        GraphType.GRID:         (1, range(9, 30+1)),
-        GraphType.CAVEMAN:      (1, range(9, 30+1)),
-        GraphType.LADDER:       (1, range(9, 30+1)),
-        GraphType.LINE:         (1, range(9, 30+1)),
-        GraphType.STAR:         (1, range(9, 30+1)),
-        GraphType.CYCLE:        (1, range(9, 30+1)),
-        GraphType.WHEEL:        (1, range(9, 30+1)),
+        GraphType.GRID:         (1, range(26, 29+1, 1)),
+        GraphType.CAVEMAN:      (1, range(26, 29+1, 1)),
+        GraphType.LADDER:       (1, range(26, 29+1, 1)),
+        GraphType.LINE:         (1, range(26, 29+1, 1)),
+        GraphType.STAR:         (1, range(26, 29+1, 1)),
+        GraphType.CYCLE:        (1, range(26, 29+1, 1)),
+        GraphType.WHEEL:        (1, range(26, 29+1, 1)),
         ## All isomorphic graph with N nodes from a file.
         #   N: num. graphs OR -1 for all graphs
-        3: -1,
-        4: -1,
-        5: -1,
-        6: -1,
-        7: -1,
-        8: -1,
+        # 3: -1,
+        # 4: -1,
+        # 5: -1,
+        # 6: -1,
+        # 7: -1,
+        # 8: -1,
     }
 
-    selection = {"03-30_mix_1000": -1}
+    selection = {"26-50_mix_100": -1}
 
     loader = GraphDataset(selection=selection, seed=42, graph_format="graph6", retries=100)
-    lst = [G for G in loader.graphs(batch_size=1, raw=True)]
-    print(len(lst))
 
-    # loader.save_graphs("03-30_mix_1000", graph_format="graph6", save_description=True)
+    # lst = [G for G in loader.graphs(batch_size=1, raw=True)]
+    # print(len(lst))
+
+    # shit_counter = 0
+    # for G in loader.graphs(batch_size=1, raw=False):
+    #     if not nx.is_connected(G):
+    #         shit_counter += 1
+    # print(shit_counter)
+
+    # loader.save_graphs("26-50_mix_100", graph_format="graph6", save_description=False)
+
+    # descriptions = [loader.raw_files_dir_base / "graph6" / f"description_{name}.yaml" for name in selection]
+    # join_descriptions(descriptions, "description_26-50_mix_100.yaml")
 
