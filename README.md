@@ -9,21 +9,44 @@ At the moment, the dataset consists of the following graphs:
     | Vertices     | 3 | 4 | 5 | 6 | 7 |  8  |   9  |   10   |
     |------------- |---|---|---|---|---|-----|------|--------|
     | No. of graphs| 2 | 6 | 21|112|853|11117|261080|11716571|
+2. Ability to generate random graphs with specified number of vertices of the following types:
+   * Erdős-Rényi
+   * Barabási-Albert
+   * Watts-Strogatz
+   * Newmann-Watts-Strogatz
+   * Stochastic block model
+   * Regular graphs (with random _degree_)
+   * Power-law trees
+   * Caveman
+   * Catterpillar
+   * Lobster
+
+3. Ability to generate parametric fixed graphs with specified number of vertices of the following types:
+   * Grid (with _height_ and _width_ as close as possible)
+   * Ladder
+   * Line
+   * Cycle
+   * Star
+   * Full _r_-ary trees (with random _r_)
+   * Wheel
+   * Lollipop
+   * Barbell
 
 ### Scripts
-1. `converter.py` - Converts the graphs between different formats.
-   1. grap6 <--> edgelist
-   1. ...
+1. `converter.py` - Converts the text files with graphs between different formats.
+   * grap6 <--> edgelist
 1. `file_list_snapshot.py` - Creates a snapshot of the file list in the dataset.
+1. `graph_generators.py` - Definitions for random and fixed graph generation.
 1. `dataset_loader.py` - Loads the dataset into memory.
+1. `tests.py` - Testing individual components of the dataset.
 
 
 ## Usage
 ### Generating the dataset
-The files are not actually stored because they can be easily generated. I am using the great `geng` tool from the `nauty` package to generate the graphs. 
+The files with raw graph descriptions are not actually stored because they can be easily generated. I am using the great `geng` tool from the `nauty` package to generate the graphs.
 > McKay, B.D. and Piperno, A., Practical Graph Isomorphism, II,
-Journal of Symbolic Computation, 60 (2014), pp. 94-112, https://doi.org/10.1016/j.jsc.2013.09.003  
-> 
+Journal of Symbolic Computation, 60 (2014), pp. 94-112, https://doi.org/10.1016/j.jsc.2013.09.003
+>
 > Available at https://pallini.di.uniroma1.it/
 
 The precompiled version of the `geng` tool is available from the Releases section. Download the executable into the main `my_graphs_dataset` directory and run it with
@@ -61,16 +84,24 @@ for G in loader.graphs():  # G is a networkx.Graph
 
 #### Loading a selection of graphs
 ```python
-from my_graphs_dataset import GraphDataset
+from my_graphs_dataset import GraphDataset, GraphType
 
-# Load all available graphs.
-loader = GraphDataset(selection=None)
-loader = GraphDataset(selection=[])
-
-# Load all graphs with 3, 4, and 5 vertices.
-loader = GraphDataset(selection=[3, 4, 5])  
 # Load all graphs with 3 and 4 vertices and first 10 graphs with 5 vertices.
-loader = GraphDataset(selection={3: -1, 4: -1, 5: 10})  
+loader = GraphDataset(selection={3: -1, 4: -1, 5: 10})
+
+# Generate and load various random graphs.
+loader = GraphDataset(
+    selection={
+        # 10 BA graphs with 11 vertices, 10 BA graphs with 12 vertices, etc.
+        GraphType.BARABASI_ALBERT: (10, range(11, 15, 1)),
+        # 15 regular graphs with 20 vertices, 15 regular graphs with 22 vertices, etc.
+        GraphType.REGULAR: (15, range(20, 25, 2)),
+        # Grid graphs with 5, 6, 7, 8, 9, and 10 vertices.
+        GraphType.GRID: (1, range(5, 10, 1)),
+        # A star graph with 5 vertices, a star graph with 10 vertices, etc.
+        GraphType.STAR: (1, range(5, 21, 5)),
+    }
+)
 ```
 
 #### Parallel processing
