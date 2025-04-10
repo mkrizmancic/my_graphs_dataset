@@ -412,12 +412,6 @@ if __name__ == "__main__":
     # lst = [G for G in loader.graphs(batch_size=1, raw=True)]
     # print(len(lst))
 
-    # shit_counter = 0
-    # for G in loader.graphs(batch_size=1, raw=False):
-    #     if not nx.is_connected(G):
-    #         shit_counter += 1
-    # print(shit_counter)
-
     # loader.save_graphs("26-50_mix_100", graph_format="graph6", save_description=False)
 
     # descriptions = [loader.raw_files_dir_base / "graph6" / f"description_{name}.yaml" for name in selection]

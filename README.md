@@ -104,6 +104,21 @@ loader = GraphDataset(
 )
 ```
 
+#### Saving a colection of graphs in file
+```python
+from my_graphs_dataset import GraphDataset, GraphType
+
+# Define and load a collection of graphs.
+loader = GraphsDataset(selection={4: -1, 6: -1, GraphType.CYCLE: (1, range(8, 10, 1))})
+
+# Save the collection of graphs in a file.
+loader.save_graphs("my_collection", graph_format="graph6", save_description=False)
+
+# Load the collection of graphs from the file.
+loader = GraphDataset(selection={"my_collection": -1}, graph_format="graph6")
+# ... process graphs as usual.
+```
+
 #### Parallel processing
 ```python
 from tqdm.contrib.concurrent import process_map
