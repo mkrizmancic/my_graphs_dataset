@@ -66,6 +66,9 @@ cd my_graphs_dataset
 pip install [-e] -r requirements.txt .
 ```
 
+### Documentation
+All classes and functions are documented in code.
+
 ### Examples of using the dataset
 #### Exploring graphs
 ```python
@@ -76,7 +79,7 @@ from my_graphs_dataset import GraphDataset
 
 loader = GraphDataset()
 
-for G in loader.graphs():  # G is a networkx.Graph
+for G in loader.graphs(raw=False):  # When raw=False, G is a networkx.Graph, check doctring for more.
     print(nx.to_numpy_array(G))
     nx.draw(G, with_labels=True)
     plt.show()
@@ -86,7 +89,7 @@ for G in loader.graphs():  # G is a networkx.Graph
 ```python
 from my_graphs_dataset import GraphDataset, GraphType
 
-# Load all graphs with 3 and 4 vertices and first 10 graphs with 5 vertices.
+# Load all graphs with 3 and 4 vertices and the first 10 graphs with 5 vertices.
 loader = GraphDataset(selection={3: -1, 4: -1, 5: 10})
 
 # Generate and load various random graphs.
@@ -109,7 +112,7 @@ loader = GraphDataset(
 from my_graphs_dataset import GraphDataset, GraphType
 
 # Define and load a collection of graphs.
-loader = GraphsDataset(selection={4: -1, 6: -1, GraphType.CYCLE: (1, range(8, 10, 1))})
+loader = GraphDataset(selection={4: -1, 6: -1, GraphType.CYCLE: (1, range(8, 10, 1))})
 
 # Save the collection of graphs in a file.
 loader.save_graphs("my_collection", graph_format="graph6", save_description=False)
