@@ -7,13 +7,10 @@ https://networkx.github.io/documentation/networkx-1.10/reference/generators.html
 import math
 import random
 from enum import Enum
-from functools import partial
 from typing import Counter
 
 import networkx as nx
 import numpy as np
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 
 def empty_graph(N, scale, seed):
@@ -408,29 +405,34 @@ def generate_and_analyze(N, graph_type, scale, seed):
     return nx.to_graph6_bytes(G).decode("ascii"), density, avg_degree
 
 
-def plot_histograms(data, title, xlim):
-    num_graphs = len(data)
-    rows = math.ceil(math.sqrt(num_graphs))  # Arrange in a square-like grid
-    cols = math.ceil(num_graphs / rows)
 
-    fig = make_subplots(rows=rows, cols=cols, subplot_titles=list(data.keys()))
-
-    for i, (key, values) in enumerate(data.items()):
-        row = (i // cols) + 1
-        col = (i % cols) + 1
-        fig.add_trace(go.Histogram(x=values, name=key), row=row, col=col)
-
-    fig.update_xaxes(range=xlim)
-    fig.update_layout(
-        title=title,
-        showlegend=False,
-    )
-    fig.update_traces(xbins_size=xlim[1] / 10)
-
-    fig.show()
 
 
 def test_graph_generation(scale, seed):
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    def plot_histograms(data, title, xlim):
+        num_graphs = len(data)
+        rows = math.ceil(math.sqrt(num_graphs))  # Arrange in a square-like grid
+        cols = math.ceil(num_graphs / rows)
+
+        fig = make_subplots(rows=rows, cols=cols, subplot_titles=list(data.keys()))
+
+        for i, (key, values) in enumerate(data.items()):
+            row = (i // cols) + 1
+            col = (i % cols) + 1
+            fig.add_trace(go.Histogram(x=values, name=key), row=row, col=col)
+
+        fig.update_xaxes(range=xlim)
+        fig.update_layout(
+            title=title,
+            showlegend=False,
+        )
+        fig.update_traces(xbins_size=xlim[1] / 10)
+
+        fig.show()
+
     sn = 10
     en = 41
 

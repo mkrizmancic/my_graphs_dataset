@@ -49,7 +49,7 @@ class GraphDataset:
     def _make_raw_file_names(self):
         """Return the list of filenames that need to be processed."""
         if not self.selection:
-            return [file.name for file in sorted(self.raw_files_dir.iterdir())]
+            return [file.name for file in sorted(self.raw_files_dir.glob("*.txt"))]
 
         if isinstance(self.selection, (list, dict)):
             return [
@@ -66,11 +66,13 @@ class GraphDataset:
         new_selection = {}
         for file_name in self.raw_file_names:
             with open(self.raw_files_dir / file_name) as file:
-                graph_size = self.extract_graph_info(file_name)
+                if (graph_size := self.extract_graph_info(file_name)) is None:
+                    continue
+
                 # Total number of graphs in the file.
                 num_graphs_in_file = len(file.readlines())
                 # Load the specified number of graphs or all if the specified number is greater.
-                if isinstance(self.selection, dict) and self.selection[graph_size] > 0:
+                if isinstance(self.selection, dict) and self.selection.get(graph_size, 0) >= 0:
                     num_graphs[graph_size] = min(self.selection[graph_size], num_graphs_in_file)
                 # Otherwise, load all graphs from the file.
                 else:
@@ -294,7 +296,9 @@ class GraphDataset:
             combined[graph_type.name] = {N: len(graphs) for N, graphs in self.seen_graphs[graph_type].items()}
 
         # Write the results to a file.
-        with open(self.raw_files_dir_base / graph_format / f"description_{name}.yaml", "w") as file:
+        description_dir = self.raw_files_dir_base / graph_format / "descriptions"
+        description_dir.mkdir(parents=True, exist_ok=True)
+        with open(description_dir / f"description_{name}.yaml", "w") as file:
             result = {"total": sum(per_size.values()), "per_size": per_size, "per_type": per_type, "combined": combined}
             yaml.safe_dump(result, file, sort_keys=False)
 
@@ -372,29 +376,29 @@ if __name__ == "__main__":
         ## Random and generated graphs
         #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
         #   Completly random graphs
-        GraphType.BARABASI_ALBERT:      (100, range(26, 29+1, 1)),
-        GraphType.ERDOS_RENYI:          (100, range(26, 29+1, 1)),
-        GraphType.WATTS_STROGATZ:       (100, range(26, 29+1, 1)),
-        GraphType.NEW_WATTS_STROGATZ:   (100, range(26, 29+1, 1)),
-        GraphType.STOCH_BLOCK:          (100, range(26, 29+1, 1)),
-        GraphType.REGULAR:              (100, range(26, 29+1, 1)),
-        GraphType.CATERPILLAR:          (100, range(26, 29+1, 1)),
-        GraphType.LOBSTER:              (100, range(26, 29+1, 1)),
-        GraphType.POWER_TREE:           (100, range(26, 29+1, 1)),  # Must be a small number. There aren't that many power
+        GraphType.BARABASI_ALBERT:      (1000, range(10, 10+1, 1)),
+        GraphType.ERDOS_RENYI:          (1000, range(10, 10+1, 1)),
+        GraphType.WATTS_STROGATZ:       (1000, range(10, 10+1, 1)),
+        GraphType.NEW_WATTS_STROGATZ:   (1000, range(10, 10+1, 1)),
+        GraphType.STOCH_BLOCK:          (1000, range(10, 10+1, 1)),
+        GraphType.REGULAR:              (1000, range(10, 10+1, 1)),
+        GraphType.CATERPILLAR:          (1000, range(10, 10+1, 1)),
+        GraphType.LOBSTER:              (1000, range(10, 10+1, 1)),
+        GraphType.POWER_TREE:           (1000, range(10, 10+1, 1)),  # Must be a small number. There aren't that many power
                                                                 # law trees. Check https://oeis.org/A000055/list.
                                                                 # The number must be much smaller than in the list.
         #   Random graphs with limited variability
-        GraphType.FULL_K_TREE:  (100, range(26, 29+1, 1)),
-        GraphType.LOLLIPOP:     (100, range(26, 29+1, 1)),
-        GraphType.BARBELL:      (100, range(26, 29+1, 1)),
+        GraphType.FULL_K_TREE:  (1000, range(10, 10+1, 1)),
+        GraphType.LOLLIPOP:     (1000, range(10, 10+1, 1)),
+        GraphType.BARBELL:      (1000, range(10, 10+1, 1)),
         #   Unique families of graphs
-        GraphType.GRID:         (1, range(26, 29+1, 1)),
-        GraphType.CAVEMAN:      (1, range(26, 29+1, 1)),
-        GraphType.LADDER:       (1, range(26, 29+1, 1)),
-        GraphType.LINE:         (1, range(26, 29+1, 1)),
-        GraphType.STAR:         (1, range(26, 29+1, 1)),
-        GraphType.CYCLE:        (1, range(26, 29+1, 1)),
-        GraphType.WHEEL:        (1, range(26, 29+1, 1)),
+        GraphType.GRID:         (1, range(10, 10+1, 1)),
+        GraphType.CAVEMAN:      (1, range(10, 10+1, 1)),
+        GraphType.LADDER:       (1, range(10, 10+1, 1)),
+        GraphType.LINE:         (1, range(10, 10+1, 1)),
+        GraphType.STAR:         (1, range(10, 10+1, 1)),
+        GraphType.CYCLE:        (1, range(10, 10+1, 1)),
+        GraphType.WHEEL:        (1, range(10, 10+1, 1)),
         ## All isomorphic graph with N nodes from a file.
         #   N: num. graphs OR -1 for all graphs
         # 3: -1,
@@ -405,14 +409,16 @@ if __name__ == "__main__":
         # 8: -1,
     }
 
-    selection = {"26-50_mix_100": -1}
+    # selection = {"26-50_mix_100": -1}
+
+    # selection = None
 
     loader = GraphDataset(selection=selection, seed=42, graph_format="graph6", retries=100)
 
     # lst = [G for G in loader.graphs(batch_size=1, raw=True)]
     # print(len(lst))
 
-    # loader.save_graphs("26-50_mix_100", graph_format="graph6", save_description=False)
+    loader.save_graphs("10_mix_1000", graph_format="graph6", save_description=True)
 
     # descriptions = [loader.raw_files_dir_base / "graph6" / f"description_{name}.yaml" for name in selection]
     # join_descriptions(descriptions, "description_26-50_mix_100.yaml")
