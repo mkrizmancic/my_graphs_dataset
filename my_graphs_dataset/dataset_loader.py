@@ -116,7 +116,7 @@ class GraphDataset:
         # Reset the list of seen graphs for each call to this generator.
         self.seen_graphs = dict()
 
-        with tqdm(self.raw_file_names, disable=self.suppress_output) as files_w_progress:
+        with tqdm(self.raw_file_names, disable=self.suppress_output, position=1) as files_w_progress:
             # Iterate over all available files.
             files_w_progress.set_description("Processing fixed graphs")
             for file_name in files_w_progress:
@@ -129,7 +129,7 @@ class GraphDataset:
                 with open(self.raw_files_dir / file_name, "r") as file:
                     batch: list[nx.Graph | str] = []
                     total_graphs_from_file = 0
-                    for line in tqdm(file, total=num_graphs_to_load, desc=file_name, disable=self.suppress_output):
+                    for line in tqdm(file, total=num_graphs_to_load, desc=file_name, disable=self.suppress_output, position=0):
                         line = line.strip()
                         if total_graphs_from_file >= num_graphs_to_load:
                             break
@@ -156,14 +156,14 @@ class GraphDataset:
             return
 
         graph_generators = {k: v for k, v in self.selection.items() if isinstance(k, GraphType)}
-        with tqdm(graph_generators.items(), disable=self.suppress_output) as generators_w_progress:
+        with tqdm(graph_generators.items(), disable=self.suppress_output, position=1) as generators_w_progress:
             generators_w_progress.set_description("Generating random graphs")
             for graph_type, num_graphs in generators_w_progress:
                 # Load the number of graphs specified in the selection.
                 num_graphs_to_generate = sum(num_graphs[0] for _ in num_graphs[1])
                 _batch_size = num_graphs_to_generate if batch_size == "auto" else int(batch_size)
                 # Iterate over the specified number of graphs.
-                with tqdm(total=num_graphs_to_generate, desc=graph_type.padded_value, disable=self.suppress_output) as pbar:
+                with tqdm(total=num_graphs_to_generate, desc=graph_type.padded_value, disable=self.suppress_output, position=0) as pbar:
                     batch: list[nx.Graph | str] = []
                     total_graphs_generated = 0
                     for graph_size in num_graphs[1]:
