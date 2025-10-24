@@ -96,14 +96,22 @@ def grid(N, scale, seed):
     Generate a `m*k` 2D grid graph with `N = m*k` and `m` and `k` as close as possible.
 
     `m` and `k` could be made random, but (Corso et al., 2020) defines it like this.
+    For m=1, the graph is a line (not a grid).
+    For m=2, the graph is a ladder (technically a grid).
 
     Maximum number of graphs = 1
     """
-    m = 1
-    for i in range(1, int(math.sqrt(N)) + 1):
+    grid.max_graphs = 1
+    if N % 2 != 0:  # Grid with odd number of nodes is not possible
+        return None
+
+    m = 2
+    for i in range(3, int(math.sqrt(N)) + 1):
         if N % i == 0:
             m = i
-    assert m * (N // m) == N
+    if m * (N // m) != N:  # No rows and columns found to form a grid
+        return None
+
     return nx.grid_2d_graph(m, N // m)
 
 
@@ -115,6 +123,7 @@ def ladder(N, scale, seed):
 
     Maximum number of graphs = 1
     """
+    ladder.max_graphs = 1
     G = nx.ladder_graph(N // 2)
     if N % 2 != 0:
         G.add_node(N - 1)
@@ -127,20 +136,28 @@ def regular(N, scale, seed):
     Generate a regular graph of size `N` with each node connected to `d` neighbors.
 
     `d` must be smaller than `N`, and `d*N` must be even.
-    If `scale == 1`, select `d` as a random number between 1 or 2 and `N` exclusive.
+    If `scale == 1`, select `d` as a random number between 2 and `N` exclusive.
     If `scale < 1`, it controls the maximum value of `d` as `round(N*scale)`.
 
     Example:
-        - N = 10, scale = 1 -> d = [1, 2, 3, 4, 5, 6, 7, 8, 9]
-        - N = 10, scale = 0.5 -> d = [1, 2, 3, 4]
+        - N = 10, scale = 1 -> d = [2, 3, 4, 5, 6, 7, 8, 9]
+        - N = 10, scale = 0.5 -> d = [2, 3, 4]
         - N = 11, scale = 1 -> d = [2, 4, 6, 8, 10]
         - N = 11, scale = 0.5 -> d = [2, 4]
 
-    Maximum number of graphs = unlimited
+    For d=1, the graph is disconnected (pairs of nodes).
+    For d=2, the graph is a cycle.
+    For d=3, the graph is a 3-regular graph (cubic).
+    For d=N-1, the graph is complete.
+
+    Maximum number of graphs = OEIS A005177
     """
+    max_graphs = [1, 1, 1, 1, 2, 2, 5, 4, 17, 22, 167, 539, 18979]
+    regular.max_graphs = max_graphs[N] if N < len(max_graphs) else float("inf")
+
     if N % 2 == 0:
         # N is even - d can be even or odd.
-        d = random.choice(range(1, round(N * scale), 1))
+        d = random.choice(range(2, round(N * scale), 1))
     else:
         # N is odd - d must be even.
         d = random.choice(range(2, round(N * scale), 2))
@@ -154,6 +171,7 @@ def line(N, scale, seed):
 
     Maximum number of graphs = 1
     """
+    line.max_graphs = 1
     return nx.path_graph(N)
 
 
@@ -163,6 +181,7 @@ def star(N, scale, seed):
 
     Maximum number of graphs = 1
     """
+    star.max_graphs = 1
     return nx.star_graph(N - 1)
 
 
@@ -172,6 +191,7 @@ def cycle(N, scale, seed):
 
     Maximum number of graphs = 1
     """
+    cycle.max_graphs = 1
     return nx.cycle_graph(N)
 
 
@@ -179,22 +199,29 @@ def power_tree(N, scale, seed):
     """
     Generate a tree of size `N` with a power law degree distribution.
 
-    Maximum number of graphs = unlimited?
+    Maximum number of graphs = unlimited? OEIS A000055
     """
     power_tree.max_graphs = 5.25 * N - 39
-    return nx.random_powerlaw_tree(N, gamma=3, tries=10000)
+    return nx.random_powerlaw_tree(N, gamma=np.random.uniform(2.5, 3.5), tries=10000)
 
 
 def full_k_tree(N, scale, seed):
     """
     Generate a tree of size `N` with a k-ary distribution.
 
-    For `k >= N - 2`, the graph is a star.
+    For `k >= N - 1`, the graph is a star.
 
     Maximum number of graphs = round((N - 3) * scale) - 1
     """
-    full_k_tree.max_graphs = round((N - 3) * scale) - 1
-    k = random.randint(2, round((N - 3) * scale))
+    if not hasattr(full_k_tree, "choices"):
+        full_k_tree.choices = {}
+    if N not in full_k_tree.choices:
+        full_k_tree.choices[N] = list(range(2, N - 1))
+    if len(full_k_tree.choices[N]) == 0:
+        return None
+
+    k = random.choice(full_k_tree.choices[N])
+    full_k_tree.choices[N].remove(k)
     return nx.full_rary_tree(k, N)
 
 
@@ -204,6 +231,7 @@ def wheel(N, scale, seed):
 
     Maximum number of graphs = 1
     """
+    wheel.max_graphs = 1
     return nx.wheel_graph(N)
 
 
@@ -215,6 +243,7 @@ def caveman(N, scale, seed):
 
     Maximum number of graphs = 1
     """
+    caveman.max_graphs = 1
     m = 1
     for i in range(1, int(math.sqrt(N)) + 1):
         if N % i == 0:
@@ -228,8 +257,9 @@ def caterpillar(N, scale, seed):
     Generate a random caterpillar graph with a backbone of size `b` (drawn from U[1, N)),
     and `N-b` pendent vertices uniformly connected to the backbone.
 
-    Maximum number of graphs = unlimited
+    Maximum number of graphs = 2 ** (N - 4) + 2 ** floor((N - 4) / 2)
     """
+    caterpillar.max_graphs = 2 ** (N - 4) + 2 ** math.floor((N - 4) / 2)
     B = np.random.randint(low=1, high=N)
     G = nx.empty_graph(N)
     for i in range(1, B):
@@ -241,21 +271,25 @@ def caterpillar(N, scale, seed):
 
 def lobster(N, scale, seed):
     """
-    Generate a random Lobster graph with a backbone of size `b` (drawn from U[1, N)),
-    `p` (drawn from U[1, N - b ]) pendent vertices uniformly connected to the backbone,
+    Generate a random Lobster graph with a backbone of size `b` (drawn from U[1, N-2]),
+    `p` (drawn from U[1, N-b-1]) pendent vertices uniformly connected to the backbone,
     and additional `N-b-p` pendent vertices uniformly connected to the previous pendent vertices.
 
-    Maximum number of graphs = unlimited
+    Maximum number of graphs = OEIS A130131
+
+    Note: Many lobsters are also caterpillars.
     """
-    B = np.random.randint(low=1, high=N)
-    F = np.random.randint(low=B + 1, high=N + 1)
-    G = nx.empty_graph(N)
-    for i in range(1, B):
+    max_graphs = [0, 1, 1, 1, 2, 3, 6, 11, 23, 47, 105, 231, 532, 1224, 2872, 6739, 15955, 37776, 89779]
+    lobster.max_graphs = max_graphs[N] if N < len(max_graphs) else float("inf")
+    B = np.random.randint(low=1, high=N - 2 + 1)  # B = 1, 2, ..., N-2
+    F = np.random.randint(low=B + 1, high=N - 1 + 1)  # F = B+1, B+2, ..., N-1
+    G = nx.empty_graph(N)  # Create N nodes without edges
+    for i in range(1, B):  # Create the backbone with B nodes
         G.add_edge(i - 1, i)
     for i in range(B, F):
-        G.add_edge(i, np.random.randint(B))
+        G.add_edge(i, np.random.randint(low=0, high=B))  # Connect to one of the backbone nodes = 0, ..., B-1
     for i in range(F, N):
-        G.add_edge(i, np.random.randint(low=B, high=F))
+        G.add_edge(i, np.random.randint(low=B, high=F))  # Connect to one of the pendent nodes = B, ..., F-1
     return G
 
 
@@ -320,27 +354,31 @@ def randomize(A):
 
 
 class GraphType(Enum):
-    RANDOM_PNA = (empty_graph,)
-    RANDOM_OUR = (empty_graph,)
+    # Families of unique graphs
+    LINE = (line,)
+    LADDER = (ladder,)
+    GRID = (grid,)
+    CYCLE = (cycle,)
+    WHEEL = (wheel,)
+    STAR = (star,)
+    CAVEMAN = (caveman,)
+    # Random graphs with limited variability
+    CATERPILLAR = (caterpillar,)
+    LOBSTER = (lobster,)
+    LOLLIPOP = (lolipop,)
+    BARBELL = (barbell,)
+    POWER_TREE = (power_tree,)
+    FULL_K_TREE = (full_k_tree,)
+    REGULAR = (regular,)
+    # Random graphs with specified model
     ERDOS_RENYI = (erdos_renyi,)
     BARABASI_ALBERT = (barabasi_albert,)
     WATTS_STROGATZ = (watts_strogatz,)
     NEW_WATTS_STROGATZ = (newman_watts_strogatz,)
     STOCH_BLOCK = (stochastic_block,)
-    GRID = (grid,)
-    LADDER = (ladder,)
-    REGULAR = (regular,)
-    LINE = (line,)
-    STAR = (star,)
-    CYCLE = (cycle,)
-    POWER_TREE = (power_tree,)
-    FULL_K_TREE = (full_k_tree,)
-    WHEEL = (wheel,)
-    CAVEMAN = (caveman,)
-    CATERPILLAR = (caterpillar,)
-    LOBSTER = (lobster,)
-    LOLLIPOP = (lolipop,)
-    BARBELL = (barbell,)
+    # Completely random graphs or mixtures
+    RANDOM_PNA = (empty_graph,)
+    RANDOM_OUR = (empty_graph,)
 
     def __call__(self, *args, **kwargs):
         return self.value[0](*args, **kwargs)
@@ -356,19 +394,46 @@ class GraphType(Enum):
     def max_graphs(self):
         return self.value[0].max_graphs if hasattr(self.value[0], "max_graphs") else float("inf")
 
+    def reset(self):
+        if hasattr(self.value[0], "choices"):
+            self.value[0].choices = {}
+
 
 # probabilities of each type in case of random type
-MIXTURE_PNA = [(GraphType.ERDOS_RENYI, 0.2), (GraphType.BARABASI_ALBERT, 0.2), (GraphType.GRID, 0.05),
-               (GraphType.CAVEMAN, 0.05), (GraphType.POWER_TREE, 0.15), (GraphType.LADDER, 0.05),
-               (GraphType.LINE, 0.05), (GraphType.STAR, 0.05), (GraphType.CATERPILLAR, 0.1), (GraphType.LOBSTER, 0.1)]
+MIXTURE_PNA = [
+    (GraphType.ERDOS_RENYI, 0.2),
+    (GraphType.BARABASI_ALBERT, 0.2),
+    (GraphType.GRID, 0.05),
+    (GraphType.CAVEMAN, 0.05),
+    (GraphType.POWER_TREE, 0.15),
+    (GraphType.LADDER, 0.05),
+    (GraphType.LINE, 0.05),
+    (GraphType.STAR, 0.05),
+    (GraphType.CATERPILLAR, 0.1),
+    (GraphType.LOBSTER, 0.1),
+]
 
-MIXTURE_OUR = [(GraphType.BARABASI_ALBERT, 0.2), (GraphType.ERDOS_RENYI, 0.2), (GraphType.WATTS_STROGATZ, 0.1),
-               (GraphType.NEW_WATTS_STROGATZ, 0.1), (GraphType.STOCH_BLOCK, 0.05), (GraphType.GRID, 0.05),
-               (GraphType.CAVEMAN, 0.03), (GraphType.POWER_TREE, 0.015), (GraphType.FULL_K_TREE, 0.015),
-               (GraphType.LADDER, 0.03), (GraphType.LINE, 0.0125), (GraphType.STAR, 0.0125),
-               (GraphType.CATERPILLAR, 0.03), (GraphType.LOBSTER, 0.03), (GraphType.REGULAR, 0.05),
-               (GraphType.LOLLIPOP, 0.025), (GraphType.CYCLE, 0.0125), (GraphType.WHEEL, 0.0125),
-               (GraphType.BARBELL, 0.025)]
+MIXTURE_OUR = [
+    (GraphType.BARABASI_ALBERT, 0.2),
+    (GraphType.ERDOS_RENYI, 0.2),
+    (GraphType.WATTS_STROGATZ, 0.1),
+    (GraphType.NEW_WATTS_STROGATZ, 0.1),
+    (GraphType.STOCH_BLOCK, 0.05),
+    (GraphType.GRID, 0.05),
+    (GraphType.CAVEMAN, 0.03),
+    (GraphType.POWER_TREE, 0.015),
+    (GraphType.FULL_K_TREE, 0.015),
+    (GraphType.LADDER, 0.03),
+    (GraphType.LINE, 0.0125),
+    (GraphType.STAR, 0.0125),
+    (GraphType.CATERPILLAR, 0.03),
+    (GraphType.LOBSTER, 0.03),
+    (GraphType.REGULAR, 0.05),
+    (GraphType.LOLLIPOP, 0.025),
+    (GraphType.CYCLE, 0.0125),
+    (GraphType.WHEEL, 0.0125),
+    (GraphType.BARBELL, 0.025),
+]
 
 
 def generate_graph(N, graph_type=GraphType.RANDOM_OUR, scale=0.5):
@@ -386,12 +451,13 @@ def generate_graph(N, graph_type=GraphType.RANDOM_OUR, scale=0.5):
 
     try:
         G = graph_type(N, scale, seed=None)
-        if len(G) == 0:
+        if G is not None and len(G) == 0:
             raise ValueError("Empty graph generated")
     except Exception as e:
         print(f"Error generating graph {graph_type.name} for {N=} {scale=}.")
         raise e
 
+    assert isinstance(G, nx.Graph) or G is None, f"Generated graph is not a NetworkX Graph. {graph_type=}, {type(G)=}"
     return G
 
 
@@ -403,9 +469,6 @@ def generate_and_analyze(N, graph_type, scale, seed):
     avg_degree = sum(d for (_, d) in list(G.degree)) / N
 
     return nx.to_graph6_bytes(G).decode("ascii"), density, avg_degree
-
-
-
 
 
 def test_graph_generation(scale, seed):
@@ -495,13 +558,22 @@ def test_graph_generation(scale, seed):
 
 
 if __name__ == "__main__":
-    scale = 0.5
+    scale = 1
     seed = 123
 
     random.seed(seed)
     np.random.seed(seed)
 
-    graphs1 = test_graph_generation(scale, seed=None)
+    # graphs1 = test_graph_generation(scale, seed=None)
+    from dataset_loader import GraphDataset
+
+    for i in range(4, 7):
+        for j in range(10):
+            g = full_k_tree(i, 1, seed)
+            if g is not None:
+                print(i, j, GraphDataset.to_graph6(g))
+            else:
+                print(i, j, "None")
 
     # random.seed(seed)
     # np.random.seed(seed)

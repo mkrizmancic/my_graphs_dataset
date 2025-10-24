@@ -1,19 +1,31 @@
 import random
 import re
+import subprocess
+import sys
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Union
-from warnings import warn
 
-import yaml
 import networkx as nx
 import numpy as np
+import yaml
 from tqdm import tqdm
 
 from my_graphs_dataset.graph_generators import GraphType, generate_graph
 
 
 class GraphDataset:
-    def __init__(self, selection=None, graph_format="graph6", connected=True, random_scale=1.0, retries=10, seed=None, suppress_output=False):
+    def __init__(
+        self,
+        selection=None,
+        graph_format="graph6",
+        connected=True,
+        random_scale=1.0,
+        retries=10,
+        seed=None,
+        suppress_output=False,
+        suppress_warnings=False,
+    ):
         """
         Initialize the dataset loader.
 
@@ -38,8 +50,10 @@ class GraphDataset:
         self.connected = connected
         self.random_scale = random_scale
         self.suppress_output = suppress_output
+        self.suppress_warnings = suppress_warnings
 
-        self.seen_graphs = dict()
+        self.seen_graphs = defaultdict(set)
+        self.generated_counter = defaultdict(lambda: Counter())
 
         self.raw_files_dir_base = Path(__file__).parents[1] / "data"
         self.raw_files_dir = self.raw_files_dir_base / graph_format
@@ -86,18 +100,11 @@ class GraphDataset:
 
         return num_graphs
 
-    def _prepare_seen_graphs(self, graph_type, N):
-        if graph_type not in self.seen_graphs:
-            self.seen_graphs[graph_type] = dict()
-
-        if N not in self.seen_graphs[graph_type]:
-            self.seen_graphs[graph_type][N] = set()
-
     @property
     def hashable_selection(self):
         return {str(k): (v[0], list(v[1])) if isinstance(v, tuple) else v for k, v in self.selection.items()}
 
-    # TODO: It woul be great to generate graphs in parallel, but this might interfere with pytorch.
+    # TODO: It would be great to generate graphs in parallel, but this might interfere with pytorch.
     def graphs(self, batch_size: Union[str, int] = 1, raw: str | bool = "auto") -> Any:
         """
         Yield graphs from the dataset.
@@ -114,7 +121,8 @@ class GraphDataset:
                 - "auto": yields raw descriptions for graphs read from files and NetworkX graphs for generated graphs.
         """
         # Reset the list of seen graphs for each call to this generator.
-        self.seen_graphs = dict()
+        self.seen_graphs = defaultdict(set)
+        self.generated_counter = defaultdict(lambda: Counter())
 
         with tqdm(self.raw_file_names, disable=self.suppress_output, position=1) as files_w_progress:
             # Iterate over all available files.
@@ -129,7 +137,9 @@ class GraphDataset:
                 with open(self.raw_files_dir / file_name, "r") as file:
                     batch: list[nx.Graph | str] = []
                     total_graphs_from_file = 0
-                    for line in tqdm(file, total=num_graphs_to_load, desc=file_name, disable=self.suppress_output, position=0):
+                    for line in tqdm(
+                        file, total=num_graphs_to_load, desc=file_name, disable=self.suppress_output, position=0
+                    ):
                         line = line.strip()
                         if total_graphs_from_file >= num_graphs_to_load:
                             break
@@ -155,15 +165,25 @@ class GraphDataset:
         if self.selection is None:
             return
 
-        graph_generators = {k: v for k, v in self.selection.items() if isinstance(k, GraphType)}
+        generation_order = {graph_type: i for i, graph_type in enumerate(GraphType)}
+        graph_generators = dict(
+            sorted(
+                ((k, v) for k, v in self.selection.items() if k in generation_order),
+                key=lambda x: generation_order[x[0]],
+            )
+        )
         with tqdm(graph_generators.items(), disable=self.suppress_output, position=1) as generators_w_progress:
             generators_w_progress.set_description("Generating random graphs")
             for graph_type, num_graphs in generators_w_progress:
                 # Load the number of graphs specified in the selection.
                 num_graphs_to_generate = sum(num_graphs[0] for _ in num_graphs[1])
                 _batch_size = num_graphs_to_generate if batch_size == "auto" else int(batch_size)
+                # Reset the generator state for each new graph type (e.g., clear cached choices).
+                graph_type.reset()
                 # Iterate over the specified number of graphs.
-                with tqdm(total=num_graphs_to_generate, desc=graph_type.padded_value, disable=self.suppress_output, position=0) as pbar:
+                with tqdm(
+                    total=num_graphs_to_generate, desc=graph_type.padded_value, disable=self.suppress_output, position=0
+                ) as pbar:
                     batch: list[nx.Graph | str] = []
                     total_graphs_generated = 0
                     for graph_size in num_graphs[1]:
@@ -174,17 +194,26 @@ class GraphDataset:
                             if size_graphs_generated >= graph_type.max_graphs:
                                 break
 
+                            graph = self.generate_graph(graph_type, graph_size, raw)
+                            if graph is None:
+                                break
+
                             if batch_size == 1:
                                 # Yield one graph.
-                                yield self.generate_graph(graph_type, graph_size, raw)
+                                yield graph
                                 total_graphs_generated += 1
                                 size_graphs_generated += 1
                             else:
                                 # Graphs will be appended to the batch in each iteration of the loop.
                                 # Total number of graphs is not yet updated, so the loop will not break.
-                                batch.append(self.generate_graph(graph_type, graph_size, raw))
+                                batch.append(graph)
                                 # When we reach the desired batch size or the desired number of graphs, yield the batch.
-                                if len(batch) >= min(_batch_size, num_graphs_to_generate - total_graphs_generated, graph_type.max_graphs, graph_type.max_graphs - size_graphs_generated):
+                                if len(batch) >= min(
+                                    _batch_size,
+                                    num_graphs_to_generate - total_graphs_generated,
+                                    graph_type.max_graphs,
+                                    graph_type.max_graphs - size_graphs_generated,
+                                ):
                                     yield batch
                                     total_graphs_generated += len(batch)
                                     size_graphs_generated += len(batch)
@@ -194,7 +223,6 @@ class GraphDataset:
 
                     if batch:
                         yield batch
-
 
     def load_graph(self, description: str, raw: str | bool = True):
         if raw == "auto" or raw is True:
@@ -219,23 +247,39 @@ class GraphDataset:
             raw: If True, returns the graph description as a string. If False, returns a NetworkX
         """
         G = generate_graph(N, graph_type, scale=self.random_scale)
+        if G is None:  # No more graphs can be generated of this type and size.
+            return None  # None will signal the caller to move to the next type/size.
 
         # Ensure that the graph is connected and not already generated.
         retry_count = 0
-        self._prepare_seen_graphs(graph_type, N)
         graph6 = GraphDataset.to_graph6(G)
-        while (self.connected and not nx.is_connected(G)) or graph6 in self.seen_graphs[graph_type][N]:
-            if retry_count and retry_count % self.retries == 0:
-                warn(f"Failed to generate a new/connected {graph_type.name} graph with {N} nodes after {retry_count} retries.")
-            if retry_count >= self.retries * 3:
-                raise RuntimeError(
-                    f"Failed to generate a new/connected {graph_type.name} graph with {N} nodes after {retry_count} retries."
-                )
+        graph6 = GraphDataset.canonical_label(graph6)
+        while (self.connected and not nx.is_connected(G)) or graph6 in self.seen_graphs[N]:
+            if retry_count >= self.retries:
+                if graph_type.max_graphs < float("inf"):
+                    if not self.suppress_warnings:
+                        tqdm.write(
+                            f"\033[33mFailed to generate a new/connected {graph_type.name} graph with {N} nodes after "
+                            f"{retry_count} retries. This graph type has a maximum of {graph_type.max_graphs} unique "
+                            f"graphs. The missing graphs were either already generated with a different family, or are "
+                            f"unlikely to be found in random generation. Continuing without them.\033[0m",
+                            file=sys.stderr,
+                        )
+                    return None
+                else:
+                    raise RuntimeError(
+                        f"Failed to generate a new/connected {graph_type.name} "
+                        f"graph with {N} nodes after {retry_count} retries."
+                    )
             G = generate_graph(N, graph_type, scale=self.random_scale)
+            if G is None:
+                return None
             graph6 = GraphDataset.to_graph6(G)
+            graph6 = GraphDataset.canonical_label(graph6)
             retry_count += 1
 
-        self.seen_graphs[graph_type][N].add(graph6)
+        self.seen_graphs[N].add(graph6)
+        self.generated_counter[graph_type][N] += 1
 
         if raw is True:
             return graph6 if self.format == "graph6" else GraphDataset.to_edgelist(G)
@@ -276,9 +320,9 @@ class GraphDataset:
         for key in self.selection:
             if isinstance(key, int):
                 per_size[key] = self.selection[key]
-        for graph_type in self.seen_graphs:
-            for N in self.seen_graphs[graph_type]:
-                per_size[N] = per_size.get(N, 0) + len(self.seen_graphs[graph_type][N])
+        for graph_type in self.generated_counter:
+            for N in self.generated_counter[graph_type]:
+                per_size[N] = per_size.get(N, 0) + self.generated_counter[graph_type][N]
 
         # Calculate the total number of graphs for each type.
         per_type = dict()
@@ -286,14 +330,14 @@ class GraphDataset:
             if isinstance(key, int):
                 per_type["PREDEFINED_UNIQUE"] = per_type.get("PREDEFINED_UNIQUE", 0) + self.selection[key]
             else:
-                per_type[key.name] = sum(len(graphs) for graphs in self.seen_graphs[key].values())
+                per_type[key.name] = sum(self.generated_counter[key].values())
 
         # Prepare the list of generated graphs per type and size.
         combined = dict()
         if self.selection is not None:
             combined["PREDEFINED_UNIQUE"] = {k: v for k, v in self.selection.items() if isinstance(k, int)}
-        for graph_type in self.seen_graphs:
-            combined[graph_type.name] = {N: len(graphs) for N, graphs in self.seen_graphs[graph_type].items()}
+        for graph_type in self.generated_counter:
+            combined[graph_type.name] = dict(self.generated_counter[graph_type].items())
 
         # Write the results to a file.
         description_dir = self.raw_files_dir_base / graph_format / "descriptions"
@@ -301,7 +345,6 @@ class GraphDataset:
         with open(description_dir / f"description_{name}.yaml", "w") as file:
             result = {"total": sum(per_size.values()), "per_size": per_size, "per_type": per_type, "combined": combined}
             yaml.safe_dump(result, file, sort_keys=False)
-
 
     @staticmethod
     def parse_graph6(description):
@@ -329,13 +372,43 @@ class GraphDataset:
     def to_edgelist(G):
         return "; ".join(nx.generate_edgelist(G, data=False))
 
+    @staticmethod
+    def size_from_graph6(description):
+        first_char = description[0]
+        n = ord(first_char) - 63
+        if n == 63:
+            second_char = description[1]
+            n = (ord(second_char) - 63) << 6
+            if n == 63 << 6:
+                third_char = description[2]
+                n = ((ord(third_char) - 63) << 12) + n
+        return n
+
+    @staticmethod
+    def canonical_label(graphs: Union[str, list[str], tuple[str]]) -> Union[str, list[str]]:
+        """Take a list of graphs in graph6 format and return their canonical labels using Nauty."""
+        if not isinstance(graphs, (list, tuple)):
+            graphs = [graphs]
+
+        program_input = "\n".join(graphs)
+
+        path_to_labelg = Path(__file__).parents[1] / "labelg"
+        process = subprocess.Popen(
+            [path_to_labelg], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        stdout, stderr = process.communicate(input=f"{program_input}\n".encode())
+
+        labels = stdout.decode().strip().split("\n")
+        if len(labels) == 1:
+            return labels[0]
+        return labels
+
     def extract_graph_info(self, file_name):
         # graphs_05.txt -> 5
         # graphs_my_graphs.txt -> my_graphs
         pattern = re.escape(self.file_name_template).replace("\\{\\}", "(.*)")
         match = re.match(pattern, file_name)
         if match is None:
-            print(f"Skipping file {file_name}")
             return None
 
         try:
@@ -352,7 +425,7 @@ def join_descriptions(descriptions, output):
     combined = dict()
 
     for description in descriptions:
-        with open(description, 'r') as file:
+        with open(description, "r") as file:
             data = yaml.safe_load(file)
             total += data["total"]
             per_size.update(data["per_size"])
@@ -364,7 +437,7 @@ def join_descriptions(descriptions, output):
                 combined[key] = combined.get(key, dict())
                 combined[key].update(value)
 
-    with open(output, 'w') as file:
+    with open(output, "w") as file:
         result = {"total": total, "per_size": per_size, "per_type": per_type, "combined": combined}
         yaml.safe_dump(result, file, sort_keys=False)
 
@@ -375,50 +448,52 @@ if __name__ == "__main__":
     selection = {
         ## Random and generated graphs
         #   Type of the graph: (num. graphs for each size, [sizes] OR range(sizes))
-        #   Completly random graphs
-        GraphType.BARABASI_ALBERT:      (1000, range(10, 10+1, 1)),
-        GraphType.ERDOS_RENYI:          (1000, range(10, 10+1, 1)),
-        GraphType.WATTS_STROGATZ:       (1000, range(10, 10+1, 1)),
-        GraphType.NEW_WATTS_STROGATZ:   (1000, range(10, 10+1, 1)),
-        GraphType.STOCH_BLOCK:          (1000, range(10, 10+1, 1)),
-        GraphType.REGULAR:              (1000, range(10, 10+1, 1)),
-        GraphType.CATERPILLAR:          (1000, range(10, 10+1, 1)),
-        GraphType.LOBSTER:              (1000, range(10, 10+1, 1)),
-        GraphType.POWER_TREE:           (1000, range(10, 10+1, 1)),  # Must be a small number. There aren't that many power
-                                                                # law trees. Check https://oeis.org/A000055/list.
-                                                                # The number must be much smaller than in the list.
-        #   Random graphs with limited variability
-        GraphType.FULL_K_TREE:  (1000, range(10, 10+1, 1)),
-        GraphType.LOLLIPOP:     (1000, range(10, 10+1, 1)),
-        GraphType.BARBELL:      (1000, range(10, 10+1, 1)),
         #   Unique families of graphs
-        GraphType.GRID:         (1, range(10, 10+1, 1)),
-        GraphType.CAVEMAN:      (1, range(10, 10+1, 1)),
-        GraphType.LADDER:       (1, range(10, 10+1, 1)),
-        GraphType.LINE:         (1, range(10, 10+1, 1)),
-        GraphType.STAR:         (1, range(10, 10+1, 1)),
-        GraphType.CYCLE:        (1, range(10, 10+1, 1)),
-        GraphType.WHEEL:        (1, range(10, 10+1, 1)),
+        GraphType.GRID:         (1, range(9, 25+1, 1)),
+        GraphType.CAVEMAN:      (1, range(9, 25+1, 1)),
+        GraphType.LADDER:       (1, range(9, 25+1, 1)),
+        GraphType.LINE:         (1, range(9, 25+1, 1)),
+        GraphType.STAR:         (1, range(9, 25+1, 1)),
+        GraphType.CYCLE:        (1, range(9, 25+1, 1)),
+        GraphType.WHEEL:        (1, range(9, 25+1, 1)),
+        #   Random graphs with limited variability
+        GraphType.FULL_K_TREE:  (200, range(9, 25+1, 1)),
+        GraphType.LOLLIPOP:     (200, range(9, 25+1, 1)),
+        GraphType.BARBELL:      (200, range(9, 25+1, 1)),
+        GraphType.CATERPILLAR:  (200, range(9, 25+1, 1)),
+        GraphType.LOBSTER:      (200, range(9, 25+1, 1)),
+        GraphType.POWER_TREE:   (200, range(9, 25+1, 1)),
+        GraphType.REGULAR:      (200, range(9, 25+1, 1)),
+        #   Completly random graphs
+        GraphType.BARABASI_ALBERT:    (200, range(9, 25+1, 1)),
+        GraphType.ERDOS_RENYI:        (200, range(9, 25+1, 1)),
+        GraphType.WATTS_STROGATZ:     (200, range(9, 25+1, 1)),
+        GraphType.NEW_WATTS_STROGATZ: (200, range(9, 25+1, 1)),
+        GraphType.STOCH_BLOCK:        (200, range(9, 25+1, 1)),
         ## All isomorphic graph with N nodes from a file.
         #   N: num. graphs OR -1 for all graphs
-        # 3: -1,
-        # 4: -1,
-        # 5: -1,
-        # 6: -1,
-        # 7: -1,
-        # 8: -1,
+        3: -1,
+        4: -1,
+        5: -1,
+        6: -1,
+        7: -1,
+        8: -1,
     }
 
     # selection = {"26-50_mix_100": -1}
 
     # selection = None
 
-    loader = GraphDataset(selection=selection, seed=42, graph_format="graph6", retries=100)
+    loader = GraphDataset(selection=selection, seed=42, graph_format="graph6", retries=1000)
 
-    # lst = [G for G in loader.graphs(batch_size=1, raw=True)]
+    # import codetiming
+    # with codetiming.Timer(text="Time: {:.4f} sec", logger=print):
+    #     lst = [G for G in loader.graphs(batch_size=1, raw=True)]
     # print(len(lst))
 
-    loader.save_graphs("10_mix_1000", graph_format="graph6", save_description=True)
+    import codetiming
+    with codetiming.Timer(text="Time: {:.4f} sec", logger=print):
+        loader.save_graphs("test", graph_format="graph6", save_description=True)
 
     # descriptions = [loader.raw_files_dir_base / "graph6" / f"description_{name}.yaml" for name in selection]
     # join_descriptions(descriptions, "description_26-50_mix_100.yaml")
